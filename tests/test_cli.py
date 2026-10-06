@@ -43,6 +43,7 @@ def _run_main(**overrides):
     defaults = {
         "description": None,
         "no_auto_caption": False,
+        "no_ai_label": False,
         "product_id": None,
         "visibility": "everyone",
         "proxy": None,
@@ -80,3 +81,29 @@ def test_cli_no_auto_caption_uploads_without_description() -> None:
 
     assert description == ""
     caption.assert_not_called()
+
+
+def test_cli_ai_label_on_by_default() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from tiktok_uploader import cli
+
+    for flag, expected in ((False, True), (True, False)):
+        args = _args(
+            description="hi",
+            no_auto_caption=False,
+            no_ai_label=flag,
+            product_id=None,
+            visibility="everyone",
+            proxy=None,
+            sessionid=None,
+            attach=False,
+        )
+        with (
+            patch.object(cli, "get_uploader_args", return_value=args),
+            patch.object(cli, "TikTokUploader") as uploader_class,
+        ):
+            uploader = MagicMock()
+            uploader_class.return_value.__enter__.return_value = uploader
+            cli.main()
+        assert uploader.upload_video.call_args.kwargs["ai_label"] is expected

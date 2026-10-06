@@ -25,6 +25,7 @@ def main() -> None:
     product_id = args.product_id
     visibility = args.visibility
     draft = args.draft
+    ai_label = not args.no_ai_label
     description = args.description
     if description is None:
         description = "" if args.no_auto_caption else auto_caption(args.video)
@@ -46,6 +47,7 @@ def main() -> None:
             cover=args.cover,
             visibility=visibility,
             draft=draft,
+            ai_label=ai_label,
         )
 
     print("-------------------------")
@@ -102,6 +104,11 @@ def get_uploader_args() -> Namespace:
         default="everyone",
     )
     parser.add_argument("--cover", help="Custom cover image file", default=None)
+    parser.add_argument(
+        "--no-ai-label",
+        action="store_true",
+        help="Do not turn on TikTok's AI-generated content label (on by default)",
+    )
     parser.add_argument(
         "--draft",
         action="store_true",

@@ -21,6 +21,7 @@ class VideoDict(TypedDict, total=False):
     cover: str
     visibility: Literal["everyone", "friends", "only_you"]
     draft: bool
+    ai_label: bool
 
 
 class Cookie(TypedDict, total=False):

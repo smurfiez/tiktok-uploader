@@ -73,6 +73,9 @@ class UploadSelectors(StrictModel):
     iframe: str
     split_window: str
     save_draft: str
+    show_more: str
+    ai_label_switch: str
+    ai_label_confirm: str
     onboarding_tour_button: str
     upload_video: str
     upload_finished: str
@@ -139,6 +142,7 @@ class TikTokConfig(StrictModel):
     supported_file_types: list[str]
     supported_image_file_types: list[str]
     max_description_length: PositiveChars
+    default_cookies: str
 
     # Nested
     paths: Paths

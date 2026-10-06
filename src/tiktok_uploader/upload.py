@@ -92,6 +92,7 @@ class TikTokUploader:
         cover: str | None = None,
         visibility: Literal["everyone", "friends", "only_you"] = "everyone",
         draft: bool = False,
+        ai_label: bool = True,
         num_retries: int = 1,
         skip_split_window: bool = False,
         *args,
@@ -115,6 +116,8 @@ class TikTokUploader:
             video_dict["cover"] = cover
         if draft:
             video_dict["draft"] = True
+        if not ai_label:
+            video_dict["ai_label"] = False
 
         failed_list = self.upload_videos(
             [video_dict], num_retries, skip_split_window, *args, **kwargs
@@ -156,6 +159,7 @@ class TikTokUploader:
 
                 visibility = video.get("visibility", "everyone")
                 draft = video.get("draft", False)
+                ai_label = video.get("ai_label", True)
 
                 logger.debug(
                     "Posting %s%s",
@@ -179,9 +183,10 @@ class TikTokUploader:
                     if schedule.tzinfo is None:
                         # naive datetimes are UTC by contract (not host local time)
                         schedule = timezone.localize(schedule)
-                    elif (utc_offset := schedule.utcoffset()) is not None and int(
-                        utc_offset.total_seconds()
-                    ) == 0:  # Equivalent to UTC; already aware, so convert, don't localize
+                    elif (
+                        (utc_offset := schedule.utcoffset()) is not None
+                        and int(utc_offset.total_seconds()) == 0
+                    ):  # Equivalent to UTC; already aware, so convert, don't localize
                         schedule = schedule.astimezone(timezone)
                     else:
                         print(
@@ -214,6 +219,7 @@ class TikTokUploader:
                     self.headless,
                     *args,
                     draft=draft,
+                    ai_label=ai_label,
                     **kwargs,
                 )  # type: ignore[misc]
             except Exception as exception:
@@ -262,6 +268,7 @@ def upload_video(
     cover: str | None = None,
     visibility: Literal["everyone", "friends", "only_you"] = "everyone",
     draft: bool = False,
+    ai_label: bool = True,
     browser: Literal["chrome", "safari", "chromium", "edge", "firefox"] = "chrome",
     headless: bool = False,
     *args,
@@ -299,6 +306,8 @@ def upload_video(
         video_dict["cover"] = cover
     if draft:
         video_dict["draft"] = True
+    if not ai_label:
+        video_dict["ai_label"] = False
 
     try:
         return uploader.upload_videos([video_dict], *args, **kwargs)
@@ -363,6 +372,7 @@ def complete_upload_form(
     headless: bool = False,
     *args,
     draft: bool = False,
+    ai_label: bool = True,
     **kwargs,
 ) -> None:
     """
@@ -382,6 +392,7 @@ def complete_upload_form(
     _set_description(page, description)
     if visibility != "everyone":
         _set_visibility(page, visibility)
+    _set_ai_label(page, ai_label)
     if schedule:
         _set_schedule_video(page, schedule)
     if product_id:
@@ -828,6 +839,39 @@ def _post_video(page: Page) -> None:
     post_confirmation.wait_for(state="attached", timeout=config.explicit_wait * 1000)
 
     logger.debug(green("Video posted successfully"))
+
+
+def _set_ai_label(page: Page, ai_label: bool) -> None:
+    """
+    Sets TikTok's "AI-generated content" label, which lives under "Show more"
+    """
+    logger.debug(green(f"Setting AI-generated content label: {ai_label}"))
+
+    try:
+        show_more = page.locator(f"xpath={config.selectors.upload.show_more}").first
+        if show_more.is_visible():
+            show_more.click()
+
+        switch = page.locator(f"xpath={config.selectors.upload.ai_label_switch}")
+        wanted = "checked" if ai_label else "unchecked"
+        if switch.get_attribute("data-state") == wanted:
+            return
+
+        switch.click()
+        if ai_label:
+            # turning the label on asks for confirmation first
+            page.locator(f"xpath={config.selectors.upload.ai_label_confirm}").click()
+
+        for _ in range(10):
+            if switch.get_attribute("data-state") == wanted:
+                return
+            time.sleep(0.5)
+        raise Exception(f"the switch did not change to {wanted}")
+    except Exception as e:
+        # posting realistic AI content unlabeled risks removal, so do not post at all
+        msg = f"Failed to set the AI-generated content label: {e}"
+        logger.error(red(msg))
+        raise FailedToUpload(msg) from e
 
 
 def _save_draft(page: Page) -> None:

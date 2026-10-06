@@ -20,6 +20,9 @@ supported_image_file_types = ["png", "jpg", "jpeg"]
 
 max_description_length = 150 # characters
 
+# Cookies used when no login is given ($TIKTOK_COOKIES overrides it)
+default_cookies = "~/.config/tiktok-uploader/cookies.txt"
+
 # Captions written from a video's original title when no description is given
 [captions]
 endpoint = "https://inference.do-ai.run/v1/chat/completions" # any OpenAI-compatible API
@@ -71,6 +74,9 @@ user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 
 	post = "//button[@data-e2e='post_video_button']"
 	save_draft = "//button[@data-e2e='save_draft_button']"
+	show_more = "//*[text()='Show more']"
+	ai_label_switch = "//div[@data-e2e='aigc_container']//div[contains(@class, 'Switch__content')]"
+	ai_label_confirm = "//div[@role='dialog']//button[.='Turn on']"
 	post_now = "//button[.//div[text()='Post now']]"
 	post_confirmation = "//div[contains(text(), 'Your video has been uploaded') or contains(text(), '视频已发布') or contains(text(), 'Video published')]"
 
