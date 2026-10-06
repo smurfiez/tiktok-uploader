@@ -26,6 +26,15 @@ class Paths(StrictModel):
     upload: HttpUrl
 
 
+class Captions(StrictModel):
+    endpoint: HttpUrl
+    model: str
+    api_key_env: str
+    min_hashtags: Annotated[int, Field(ge=0)]
+    max_hashtags: Annotated[int, Field(ge=0)]
+    timeout: PositiveSeconds
+
+
 class Disguising(StrictModel):
     user_agent: str
 
@@ -63,6 +72,8 @@ class Cover(StrictModel):
 class UploadSelectors(StrictModel):
     iframe: str
     split_window: str
+    save_draft: str
+    onboarding_tour_button: str
     upload_video: str
     upload_finished: str
     upload_confirmation: str
@@ -131,6 +142,7 @@ class TikTokConfig(StrictModel):
 
     # Nested
     paths: Paths
+    captions: Captions
     disguising: Disguising
     selectors: Selectors
 
