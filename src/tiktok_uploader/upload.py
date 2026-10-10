@@ -1040,7 +1040,7 @@ def _set_valid_schedule_minute(
 def _check_valid_schedule(schedule: datetime.datetime) -> bool:
     valid_tiktok_minute_multiple = 5
     margin_to_complete_upload_form = 5
-    datetime_utc_now = pytz.UTC.localize(datetime.datetime.utcnow())
+    datetime_utc_now = datetime.datetime.now(datetime.timezone.utc)
     min_datetime_tiktok_valid = datetime_utc_now + datetime.timedelta(minutes=15)
     min_datetime_tiktok_valid += datetime.timedelta(
         minutes=margin_to_complete_upload_form
