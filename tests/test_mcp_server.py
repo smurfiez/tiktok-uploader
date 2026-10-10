@@ -6,6 +6,7 @@ import datetime
 import io
 import json
 import os
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytz
@@ -40,6 +41,21 @@ def test_list_videos_newest_first_with_titles(tmp_path) -> None:
     ]
 
 
+@patch("tiktok_uploader.mcp_server.auto_caption", return_value="Generated #dance")
+def test_suggest_caption_uses_the_videos_title(
+    mock_caption: MagicMock, tmp_path
+) -> None:
+    video = _video(tmp_path)
+
+    assert mcp_server.suggest_caption(video) == "Generated #dance"
+    mock_caption.assert_called_once_with(video)
+
+    notes = tmp_path / "notes.md"
+    notes.write_text("")
+    with raises(ToolError, match="Not a supported video file"):
+        mcp_server.suggest_caption(str(notes))
+
+
 def test_upload_rejects_scheduled_draft(tmp_path, monkeypatch: MonkeyPatch) -> None:
     _cookies(tmp_path, monkeypatch)
 
@@ -65,6 +81,31 @@ def test_upload_rejects_schedule_out_of_range(
     with raises(ToolError, match="10 days"):
         mcp_server.upload_video(
             _video(tmp_path), schedule=too_late.strftime("%Y-%m-%d %H:%M")
+        )
+
+
+@patch("tiktok_uploader.mcp_server.subprocess.run")
+def test_upload_schedule_rounds_minutes_and_reports_the_time(
+    mock_run: MagicMock, tmp_path, monkeypatch: MonkeyPatch
+) -> None:
+    _cookies(tmp_path, monkeypatch)
+    mock_run.return_value = _worker('{"success": true}')
+    when = datetime.datetime.now(pytz.UTC).replace(
+        second=0, microsecond=0
+    ) + datetime.timedelta(hours=1)
+    rounded = when + datetime.timedelta(minutes=(5 - when.minute % 5) % 5)
+
+    result = mcp_server.upload_video(
+        _video(tmp_path), description="hi", schedule=when.strftime("%Y-%m-%d %H:%M")
+    )
+
+    job = json.loads(mock_run.call_args.kwargs["input"])
+    assert job["schedule"] == rounded.isoformat()
+    assert result["scheduled_for_utc"] == rounded.strftime("%Y-%m-%d %H:%M")
+
+    with raises(ToolError, match="schedule must be a UTC time"):
+        mcp_server.upload_video(
+            _video(tmp_path), description="hi", schedule="next tuesday"
         )
 
 
@@ -150,6 +191,23 @@ def test_upload_reports_a_crashed_worker(
 
     with raises(ToolError, match="exited with 1"):
         mcp_server.upload_video(_video(tmp_path), description="hi")
+
+
+@patch("tiktok_uploader.mcp_server.subprocess.run")
+def test_upload_reports_a_timeout(
+    mock_run: MagicMock, tmp_path, monkeypatch: MonkeyPatch
+) -> None:
+    _cookies(tmp_path, monkeypatch)
+    mock_run.side_effect = subprocess.TimeoutExpired(
+        cmd="worker", timeout=540, stderr=b"upload stalled\n"
+    )
+
+    with raises(ToolError) as error:
+        mcp_server.upload_video(_video(tmp_path), description="hi")
+
+    message = str(error.value)
+    assert "timed out after 540 seconds" in message
+    assert "upload stalled" in message
 
 
 @patch("tiktok_uploader.upload_worker.TikTokUploader")

@@ -1,6 +1,6 @@
 from enum import Enum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import toml
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
@@ -33,6 +33,15 @@ class Captions(StrictModel):
     min_hashtags: Annotated[int, Field(ge=0)]
     max_hashtags: Annotated[int, Field(ge=0)]
     timeout: PositiveSeconds
+
+    @field_validator("endpoint")
+    @classmethod
+    def _endpoint_https(cls, v: Any) -> Any:
+        if v.scheme != "https":
+            raise ValueError(
+                "endpoint must use https (the bearer key would otherwise travel cleartext)"
+            )
+        return v
 
 
 class Disguising(StrictModel):

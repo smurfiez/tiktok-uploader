@@ -65,6 +65,18 @@ def test_rewrite_caption_needs_api_key(monkeypatch: MonkeyPatch) -> None:
         rewrite_caption("Dance cover")
 
 
+def test_rewrite_caption_rejects_unresolved_placeholder(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """
+    MCP hosts pass the raw "${VAR}" placeholder through when the key is unset
+    """
+    monkeypatch.setenv(captions.config.captions.api_key_env, "${MODEL_ACCESS_KEY}")
+
+    with raises(CaptionError, match="MODEL_ACCESS_KEY is not set"):
+        rewrite_caption("Dance cover")
+
+
 @patch("tiktok_uploader.captions.urllib.request.urlopen")
 def test_rewrite_caption_sends_title_and_key(
     mock_urlopen: MagicMock, monkeypatch: MonkeyPatch
