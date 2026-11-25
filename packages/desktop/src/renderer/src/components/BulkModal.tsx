@@ -7,6 +7,8 @@ const PRESETS = ['6h', '12h', '1d', '2d']
 
 export interface BulkModalProps {
   count: number
+  /** Validate against this account's schedule horizon instead of the global one */
+  accountId?: string
   /** Pre-fill from the account's bulk preset defaults */
   defaultEvery?: string
   defaultJitter?: string
@@ -17,6 +19,7 @@ export interface BulkModalProps {
 
 export function BulkModal({
   count,
+  accountId,
   defaultEvery,
   defaultJitter,
   defaultWindow,
@@ -45,7 +48,7 @@ export function BulkModal({
     }
     const timer = window.setTimeout(() => {
       window.api.schedule
-        .stagger(count, rule)
+        .stagger(count, rule, accountId)
         .then((timestamps) => {
           if (!alive) return
           setPreview(timestamps)
@@ -61,7 +64,7 @@ export function BulkModal({
       alive = false
       window.clearTimeout(timer)
     }
-  }, [start, every, jitter, quiet, count])
+  }, [start, every, jitter, quiet, count, accountId])
 
   return (
     <Modal

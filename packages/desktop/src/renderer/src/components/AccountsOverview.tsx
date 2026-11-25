@@ -19,6 +19,7 @@ function checkedLabel(iso?: string): string {
 export interface AccountsOverviewProps {
   accounts: AccountSummary[]
   runningAccounts: Set<string>
+  stoppingAccounts?: Set<string>
   headed: boolean
   onOpen(id: string): void
   onEdit(account: AccountSummary): void
@@ -26,18 +27,21 @@ export interface AccountsOverviewProps {
   onRun(id: string): void
   onStop(id: string): void
   onChanged(): void | Promise<void>
+  onNotify?: (message: string, tone?: 'info' | 'ok' | 'error') => void
 }
 
 export function AccountsOverview({
   accounts,
   runningAccounts,
+  stoppingAccounts,
   headed,
   onOpen,
   onEdit,
   onCookies,
   onRun,
   onStop,
-  onChanged
+  onChanged,
+  onNotify
 }: AccountsOverviewProps) {
   const [checking, setChecking] = useState<{ done: number; total: number } | null>(null)
   const [confirm, setConfirm] = useState<{ ids: string[]; videos: number } | null>(null)
@@ -91,9 +95,13 @@ export function AccountsOverview({
     setBusy(true)
     setError(null)
     try {
-      await window.api.queue.startAll({ accountIds: confirm.ids, headed })
+      const res = await window.api.queue.startAll({ accountIds: confirm.ids, headed })
       setConfirm(null)
       await onChanged()
+      onNotify?.(
+        `Started ${res.started.length} account(s)${res.queued.length ? `, ${res.queued.length} queued next` : ''}${res.skipped.length ? `, ${res.skipped.length} skipped` : ''}`,
+        res.skipped.length ? 'info' : 'ok'
+      )
     } catch (e) {
       setError(errText(e))
     } finally {
@@ -209,17 +217,20 @@ export function AccountsOverview({
           <tbody>
             {visible.map((account) => {
               const running = runningAccounts.has(account.id)
+              const stopping = stoppingAccounts?.has(account.id) ?? false
               return (
                 <tr key={account.id}>
-                  <td className="account-cell">
-                    <span className={`account-avatar${account.color ? ` ${account.color}` : ''}`}>
-                      {account.label.trim().charAt(0).toUpperCase() || '?'}
-                    </span>
-                    <div className="account-meta">
-                      <strong>{account.label}</strong>
-                      {account.handle ? <span className="hint">@{account.handle}</span> : null}
+                  <td>
+                    <div className="account-cell">
+                      <span className={`account-avatar${account.color ? ` ${account.color}` : ''}`}>
+                        {account.label.trim().charAt(0).toUpperCase() || '?'}
+                      </span>
+                      <div className="account-meta">
+                        <strong>{account.label}</strong>
+                        {account.handle ? <span className="hint">@{account.handle}</span> : null}
+                      </div>
+                      {account.group ? <span className="badge">{account.group}</span> : null}
                     </div>
-                    {account.group ? <span className="badge">{account.group}</span> : null}
                   </td>
                   <td>
                     <AccountChip account={account} />
@@ -248,33 +259,44 @@ export function AccountsOverview({
                       {account.nextSchedule ? formatWhen(account.nextSchedule) : 'Not scheduled'}
                     </span>
                   </td>
-                  <td className="actions-cell">
-                    <button type="button" className="btn ghost sm" onClick={() => onOpen(account.id)}>
-                      Open
-                    </button>
-                    {running ? (
-                      <button type="button" className="btn danger sm" onClick={() => onStop(account.id)}>
-                        <StopIcon />
-                        Stop
+                  <td>
+                    <div className="actions-cell">
+                      <button type="button" className="btn ghost sm" onClick={() => onOpen(account.id)}>
+                        Open
                       </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn ghost sm"
-                        disabled={!account.signedIn || account.locked}
-                        title={account.locked ? 'Profile is in use by another run' : undefined}
-                        onClick={() => onRun(account.id)}
-                      >
-                        <PlayIcon />
-                        Run
+                      {running ? (
+                        <button
+                          type="button"
+                          className="btn danger sm"
+                          disabled={stopping}
+                          onClick={() => onStop(account.id)}
+                        >
+                          <StopIcon />
+                          {stopping ? 'Stopping…' : 'Stop'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn ghost sm"
+                          disabled={
+                            !account.signedIn ||
+                            account.locked ||
+                            account.pendingCount + account.failedCount === 0
+                          }
+                          title={account.locked ? 'Profile is in use by another run' : undefined}
+                          onClick={() => onRun(account.id)}
+                        >
+                          <PlayIcon />
+                          Run
+                        </button>
+                      )}
+                      <button type="button" className="btn ghost sm" onClick={() => onCookies(account)}>
+                        Cookies
                       </button>
-                    )}
-                    <button type="button" className="btn ghost sm" onClick={() => onCookies(account)}>
-                      Cookies
-                    </button>
-                    <button type="button" className="btn ghost sm" onClick={() => onEdit(account)}>
-                      Edit
-                    </button>
+                      <button type="button" className="btn ghost sm" onClick={() => onEdit(account)}>
+                        Edit
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )

@@ -1086,11 +1086,6 @@ a:hover {
 }
 
 /* Status cell */
-.status-cell .remove-btn {
-  float: right;
-  margin: -2px 0 4px 6px;
-}
-
 .status-cell .row-error {
   margin-top: 4px;
   font-size: 10.5px;
@@ -1176,6 +1171,13 @@ a:hover {
   background: var(--danger-soft);
   border-color: var(--danger-border);
   color: var(--danger-text);
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
 }
 
 /* ============================================================================
@@ -2433,6 +2435,26 @@ select {
   white-space: nowrap;
 }
 
+.overview-table th:nth-child(1) {
+  width: 26%;
+}
+
+.overview-table th:nth-child(2) {
+  width: 20%;
+}
+
+.overview-table th:nth-child(3) {
+  width: 22%;
+}
+
+.overview-table th:nth-child(4) {
+  width: 14%;
+}
+
+.overview-table th:nth-child(5) {
+  width: 18%;
+}
+
 .overview-table td {
   padding: 10px;
   border-bottom: 1px solid var(--border);
@@ -2699,7 +2721,6 @@ select {
 }
 
 .completed-row .status-cell .remove-btn {
-  float: none;
   margin: 6px 0 0 4px;
   vertical-align: middle;
 }

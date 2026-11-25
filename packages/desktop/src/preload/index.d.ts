@@ -44,14 +44,14 @@ export interface TiktokApi {
     list(directory: string, options?: { recursive?: boolean }): Promise<VideoItem[]>
   }
   schedule: {
-    stagger(count: number, rule: StaggerRule): Promise<string[]>
+    stagger(count: number, rule: StaggerRule, accountId?: string): Promise<string[]>
   }
   queue: {
     load(accountId: string): Promise<Job[]>
     save(accountId: string, jobs: Job[]): Promise<{ ok: boolean }>
     append(input: { accountId: string; jobs: Job[] }): Promise<{ added: number; total: number }>
     start(input: { accountId: string; jobs: Job[]; headed?: boolean }): Promise<{ started: boolean; error?: string }>
-    startAll(input: { accountIds: string[]; headed?: boolean }): Promise<{ started: string[]; skipped: string[] }>
+    startAll(input: { accountIds: string[]; headed?: boolean }): Promise<{ started: string[]; queued: string[]; skipped: string[] }>
     stop(accountId: string): Promise<{ stopped: boolean }>
   }
   library: {

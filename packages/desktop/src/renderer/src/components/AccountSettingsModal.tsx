@@ -1,11 +1,5 @@
 import { useState } from 'react'
-import type {
-  AccountColor,
-  AccountDefaults,
-  AccountPatch,
-  AccountSummary,
-  Visibility
-} from '@tiktok-uploader/core'
+import type { AccountColor, AccountPatch, AccountSummary, Visibility } from '@tiktok-uploader/core'
 import { VISIBILITIES, errText } from '../utils'
 import { Modal } from './Modal'
 
@@ -14,39 +8,6 @@ const COLORS: AccountColor[] = ['red', 'teal', 'blue', 'amber', 'purple', 'green
 type RecursiveChoice = 'inherit' | 'yes' | 'no'
 type AiChoice = 'inherit' | 'on' | 'off'
 type HorizonChoice = 'inherit' | '10' | '30'
-type BulkChoice = 'inherit' | 'every12' | 'every1d' | 'jitter15' | 'quiet'
-
-const BULK_PRESETS: { value: BulkChoice; label: string }[] = [
-  { value: 'inherit', label: 'Inherit' },
-  { value: 'every12', label: 'Every 12h' },
-  { value: 'every1d', label: 'Every 1d' },
-  { value: 'jitter15', label: 'Jitter 15m' },
-  { value: 'quiet', label: 'Quiet 09:00-21:00' }
-]
-
-function bulkFromDefaults(defaults?: AccountDefaults): BulkChoice {
-  if (!defaults) return 'inherit'
-  if (defaults.bulkEvery === '12h') return 'every12'
-  if (defaults.bulkEvery === '1d') return 'every1d'
-  if (defaults.bulkJitter) return 'jitter15'
-  if (defaults.bulkWindow) return 'quiet'
-  return 'inherit'
-}
-
-function bulkPatch(choice: BulkChoice): AccountDefaults {
-  switch (choice) {
-    case 'every12':
-      return { bulkEvery: '12h', bulkJitter: undefined, bulkWindow: undefined }
-    case 'every1d':
-      return { bulkEvery: '1d', bulkJitter: undefined, bulkWindow: undefined }
-    case 'jitter15':
-      return { bulkEvery: undefined, bulkJitter: '15m', bulkWindow: undefined }
-    case 'quiet':
-      return { bulkEvery: undefined, bulkJitter: undefined, bulkWindow: '09:00-21:00' }
-    default:
-      return { bulkEvery: undefined, bulkJitter: undefined, bulkWindow: undefined }
-  }
-}
 
 export interface AccountSettingsModalProps {
   account: AccountSummary
@@ -70,7 +31,9 @@ export function AccountSettingsModal({ account, onClose, onSaved }: AccountSetti
   const [horizon, setHorizon] = useState<HorizonChoice>(
     defaults?.maxScheduleDays === undefined ? 'inherit' : (String(defaults.maxScheduleDays) as HorizonChoice)
   )
-  const [bulk, setBulk] = useState<BulkChoice>(bulkFromDefaults(defaults))
+  const [bulkEvery, setBulkEvery] = useState(defaults?.bulkEvery ?? '')
+  const [bulkJitter, setBulkJitter] = useState(defaults?.bulkJitter ?? '')
+  const [bulkWindow, setBulkWindow] = useState(defaults?.bulkWindow ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -97,7 +60,9 @@ export function AccountSettingsModal({ account, onClose, onSaved }: AccountSetti
           visibility: visibility === 'inherit' ? undefined : visibility,
           aiLabel: aiLabel === 'inherit' ? undefined : aiLabel === 'on',
           maxScheduleDays: horizon === 'inherit' ? undefined : Number(horizon),
-          ...bulkPatch(bulk)
+          bulkEvery: bulkEvery.trim() || undefined,
+          bulkJitter: bulkJitter.trim() || undefined,
+          bulkWindow: bulkWindow.trim() || undefined
         }
       }
       onSaved(await window.api.accounts.update({ id: account.id, patch }))
@@ -257,16 +222,45 @@ export function AccountSettingsModal({ account, onClose, onSaved }: AccountSetti
       </div>
 
       <div className="field">
-        <label className="field-label" htmlFor="acc-bulk">
-          Default bulk schedule preset
-        </label>
-        <select id="acc-bulk" value={bulk} onChange={(e) => setBulk(e.target.value as BulkChoice)}>
-          {BULK_PRESETS.map((preset) => (
-            <option key={preset.value} value={preset.value}>
-              {preset.label}
-            </option>
-          ))}
-        </select>
+        <span className="field-label">Default bulk schedule</span>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <div className="field">
+            <label className="field-label" htmlFor="acc-bulk-every">
+              Default every
+            </label>
+            <input
+              id="acc-bulk-every"
+              type="text"
+              value={bulkEvery}
+              placeholder="e.g. 12h, 1d"
+              onChange={(e) => setBulkEvery(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="acc-bulk-jitter">
+              Default jitter
+            </label>
+            <input
+              id="acc-bulk-jitter"
+              type="text"
+              value={bulkJitter}
+              placeholder="e.g. 15m"
+              onChange={(e) => setBulkJitter(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="acc-bulk-window">
+              Default quiet window
+            </label>
+            <input
+              id="acc-bulk-window"
+              type="text"
+              value={bulkWindow}
+              placeholder="e.g. 09:00-21:00"
+              onChange={(e) => setBulkWindow(e.target.value)}
+            />
+          </div>
+        </div>
       </div>
 
       {error ? <div className="alert error">{error}</div> : null}

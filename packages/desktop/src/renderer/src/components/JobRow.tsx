@@ -163,26 +163,28 @@ export function JobRow({ job, maxScheduleDays, onChange, onRemove, onCopyToAccou
             ) : null}
           </div>
         ) : null}
-        {onCopyToAccounts ? (
+        <div className="row-actions">
+          {onCopyToAccounts ? (
+            <button
+              type="button"
+              className="btn ghost sm"
+              title="Copy to accounts"
+              aria-label="Copy to accounts"
+              onClick={onCopyToAccounts}
+            >
+              <CopyPlusIcon />
+            </button>
+          ) : null}
           <button
             type="button"
-            className="btn ghost sm"
-            title="Copy to accounts"
-            aria-label="Copy to accounts"
-            onClick={onCopyToAccounts}
+            className="remove-btn"
+            aria-label="Remove row"
+            disabled={job.status === 'running'}
+            onClick={onRemove}
           >
-            <CopyPlusIcon />
+            <TrashIcon />
           </button>
-        ) : null}
-        <button
-          type="button"
-          className="remove-btn"
-          aria-label="Remove row"
-          disabled={job.status === 'running'}
-          onClick={onRemove}
-        >
-          <TrashIcon />
-        </button>
+        </div>
       </td>
     </tr>
   )

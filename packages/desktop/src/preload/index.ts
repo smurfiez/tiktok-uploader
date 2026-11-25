@@ -40,8 +40,8 @@ const api: TiktokApi = {
       ipcRenderer.invoke('videos:list', directory, options)
   },
   schedule: {
-    stagger: (count: number, rule: StaggerRule) =>
-      ipcRenderer.invoke('schedule:stagger', { count, rule })
+    stagger: (count: number, rule: StaggerRule, accountId?: string) =>
+      ipcRenderer.invoke('schedule:stagger', { count, rule, accountId })
   },
   queue: {
     load: (accountId: string) => ipcRenderer.invoke('queue:load', accountId),

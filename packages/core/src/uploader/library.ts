@@ -305,14 +305,19 @@ export async function syncAccountLibrary(
     await page.goto(PATHS.content, { waitUntil: 'domcontentloaded' })
     await assertSignedIn(page, 'TikTok Studio content')
 
-    const deadline = Date.now() + 12_000
+    const startedAt = Date.now()
+    const deadline = startedAt + 12_000
     let settleUntil: number | undefined
     while (Date.now() < deadline) {
       if (captured.size > 0) {
         // secondary item-list pages settle shortly after the first response
         settleUntil ??= Date.now() + 1_500
         if (Date.now() >= settleUntil) break
-      } else if ((await page.locator(SELECTORS.library.row).count().catch(() => 0)) > 0) {
+      } else if (
+        Date.now() - startedAt >= 3_500 &&
+        (await page.locator(SELECTORS.library.videoLink).count().catch(() => 0)) > 0
+      ) {
+        // only fall back to DOM once real video links are rendered AND the API had time to fire
         break
       }
       await sleep(500)
@@ -393,13 +398,11 @@ export async function syncAccountLibrary(
     }
     saveLibrary(accountId, library)
 
-    if (handle) {
-      updateAccount(accountId, {
-        handle,
-        lastSignedIn: true,
-        lastCheckedAt: new Date().toISOString()
-      })
-    }
+    updateAccount(accountId, {
+      ...(handle ? { handle } : {}),
+      lastSignedIn: true,
+      lastCheckedAt: new Date().toISOString()
+    })
 
     return {
       ok: true,

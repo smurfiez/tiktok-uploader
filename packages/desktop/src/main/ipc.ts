@@ -52,8 +52,15 @@ interface ActiveRun {
   blocker: number
 }
 
+interface QueuedAccountRun {
+  contents: Electron.WebContents
+  accountId: string
+  headed?: boolean
+}
+
 const signedIn = new Map<string, boolean>()
 const activeRuns = new Map<string, ActiveRun>()
+const pendingBatch: QueuedAccountRun[] = []
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
@@ -61,6 +68,16 @@ const errorMessage = (error: unknown): string =>
 /** User-facing messages say the label; the internal id never leaves this module. */
 const accountLabel = (accountId: string): string =>
   listAccounts().find((account) => account.id === accountId)?.label ?? 'Account'
+
+/** Studio accounts may allow a longer horizon than the global default. */
+const accountMaxDays = (accountId?: string): number => {
+  const fallback = loadSettings().maxScheduleDays
+  if (!accountId) return fallback
+  return (
+    listAccounts().find((account) => account.id === accountId)?.defaults?.maxScheduleDays ??
+    fallback
+  )
+}
 
 /** Filename-safe form of a label, for the export dialog default. */
 const slugOfLabel = (label: string): string =>
@@ -313,12 +330,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       listVideos(directory, options)
   )
 
-  ipcMain.handle('schedule:stagger', (_event, input: { count: number; rule: StaggerRule }) => {
-    const now = new Date()
-    const dates = buildStaggeredSchedule({ ...input.rule, count: input.count }, now)
-    assertSchedulable(dates, now, loadSettings().maxScheduleDays)
-    return dates.map((date) => date.toISOString())
-  })
+  ipcMain.handle(
+    'schedule:stagger',
+    (_event, input: { count: number; rule: StaggerRule; accountId?: string }) => {
+      const now = new Date()
+      const dates = buildStaggeredSchedule({ ...input.rule, count: input.count }, now)
+      assertSchedulable(dates, now, accountMaxDays(input.accountId))
+      return dates.map((date) => date.toISOString())
+    }
+  )
 
   ipcMain.handle('queue:load', (_event, accountId: string) => loadQueue(accountId))
 
@@ -375,7 +395,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       jobs,
       headed,
       browserPath: settings.browserPath,
-      maxScheduleDays: settings.maxScheduleDays,
+      maxScheduleDays: accountMaxDays(accountId),
       shouldStop: () => shouldStop,
       onEvent: (queueEvent) => send(contents, accountId, queueEvent)
     })
@@ -389,13 +409,28 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       })
       .catch((error) => {
         send(contents, accountId, { type: 'log', message: `Queue failed: ${errorMessage(error)}` })
+        send(contents, accountId, { type: 'queue-done', done: 0, failed: 0, skipped: 0 })
       })
       .finally(() => {
         activeRuns.delete(accountId)
         if (powerSaveBlocker.isStarted(blocker)) powerSaveBlocker.stop(blocker)
+        drainPendingBatch()
       })
 
     return { started: true }
+  }
+
+  /** Start queued accounts as parallel slots free up. */
+  function drainPendingBatch(): void {
+    const cap = loadSettings().maxConcurrentAccounts ?? 2
+    while (activeRuns.size < cap && pendingBatch.length > 0) {
+      const next = pendingBatch.shift()
+      if (!next || next.contents.isDestroyed()) continue
+      if (activeRuns.has(next.accountId) || lockStatus(next.accountId) !== null) continue
+      const jobs = loadQueue(next.accountId)
+      if (!jobs.some(isRunnable)) continue
+      startRun(next.contents, next.accountId, jobs, next.headed)
+    }
   }
 
   const isRunnable = (job: Job): boolean => job.status === 'pending' || job.status === 'failed'
@@ -423,28 +458,36 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     (event, input: { accountIds: string[]; headed?: boolean }) => {
       const cap = loadSettings().maxConcurrentAccounts ?? 2
       const started: string[] = []
+      const queued: string[] = []
       const skipped: string[] = []
 
       for (const accountId of input.accountIds) {
         const jobs = loadQueue(accountId)
         if (
           activeRuns.has(accountId) ||
+          pendingBatch.some((item) => item.accountId === accountId) ||
           lockStatus(accountId) !== null ||
-          !jobs.some(isRunnable) ||
-          activeRuns.size >= cap
+          !jobs.some(isRunnable)
         ) {
           skipped.push(accountId)
           continue
         }
-        if (startRun(event.sender, accountId, jobs, input.headed).started) started.push(accountId)
-        else skipped.push(accountId)
+        if (activeRuns.size < cap) {
+          if (startRun(event.sender, accountId, jobs, input.headed).started) started.push(accountId)
+          else skipped.push(accountId)
+        } else {
+          pendingBatch.push({ contents: event.sender, accountId, headed: input.headed })
+          queued.push(accountId)
+        }
       }
 
-      return { started, skipped }
+      return { started, queued, skipped }
     }
   )
 
   ipcMain.handle('queue:stop', (_event, accountId: string) => {
+    const index = pendingBatch.findIndex((item) => item.accountId === accountId)
+    if (index >= 0) pendingBatch.splice(index, 1)
     const run = activeRuns.get(accountId)
     run?.stop()
     return { stopped: Boolean(run) }
@@ -457,8 +500,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       browserPath: loadSettings().browserPath,
       source: 'desktop'
     })
-    if (!result.ok && !result.locked && /login|expired|signed in/i.test(result.message)) {
+    if (result.ok) {
+      signedIn.set(accountId, true)
+    } else if (!result.locked && /login|expired|signed in/i.test(result.message)) {
       signedIn.set(accountId, false)
+      updateAccount(accountId, { lastSignedIn: false, lastCheckedAt: new Date().toISOString() })
     }
     return result
   })
@@ -491,4 +537,5 @@ export function dispose(): void {
     if (powerSaveBlocker.isStarted(run.blocker)) powerSaveBlocker.stop(run.blocker)
   }
   activeRuns.clear()
+  pendingBatch.length = 0
 }

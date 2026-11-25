@@ -69,6 +69,7 @@ export default function App() {
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('queue')
   const [jobs, setJobs] = useState<Job[]>([])
   const [runningAccounts, setRunningAccounts] = useState<Set<string>>(() => new Set())
+  const [stoppingAccounts, setStoppingAccounts] = useState<Set<string>>(() => new Set())
   const [headed, setHeaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [logs, setLogs] = useState<LogLine[]>([])
@@ -136,6 +137,7 @@ export default function App() {
   const recursiveFolder = currentAccount?.recursiveFolder ?? settings?.recursiveFolder ?? false
   const maxScheduleDays = currentAccount?.defaults?.maxScheduleDays ?? settings?.maxScheduleDays ?? 10
   const isCurrentRunning = Boolean(accountId && runningAccounts.has(accountId))
+  const isCurrentStopping = Boolean(accountId && stoppingAccounts.has(accountId))
 
   const accountDefaults = useCallback(
     (account?: AccountSummary) => ({
@@ -187,18 +189,16 @@ export default function App() {
       const list = await window.api.accounts.list()
       accountsRef.current = list
       setAccounts(list)
+      // Main is the truth for what is running: a run that died without an event
+      // must not leave the account stuck in `runningAccounts`.
+      const live = new Set(list.filter((a) => a.running).map((a) => a.id))
       setRunningAccounts((prev) => {
-        const running = list.filter((a) => a.running)
-        if (!running.length) return prev
-        let changed = false
-        const next = new Set(prev)
-        for (const account of running) {
-          if (!next.has(account.id)) {
-            next.add(account.id)
-            changed = true
-          }
-        }
-        return changed ? next : prev
+        if (live.size === prev.size && [...live].every((id) => prev.has(id))) return prev
+        return live
+      })
+      setStoppingAccounts((prev) => {
+        const next = new Set([...prev].filter((id) => live.has(id)))
+        return next.size === prev.size ? prev : next
       })
       setAccountId((current) => (list.some((a) => a.id === current) ? current : list[0]?.id ?? ''))
       if (!list.length) setOverview(true)
@@ -263,6 +263,10 @@ export default function App() {
   // would otherwise show "Expired" after a CLI login or an app restart.
   useEffect(() => {
     if (!accountId || isCurrentRunning) return
+    // Skip the headless browser launch when main checked this account recently:
+    // switching accounts must stay instant and not collide with a library sync.
+    const lastChecked = accountsRef.current.find((a) => a.id === accountId)?.lastCheckedAt
+    if (lastChecked && Date.now() - new Date(lastChecked).getTime() < 5 * 60_000) return
     let alive = true
     setAuthChecking(true)
     void window.api.auth
@@ -333,6 +337,11 @@ export default function App() {
             next.delete(targetId)
             return next
           })
+          setStoppingAccounts((prev) => {
+            const next = new Set(prev)
+            next.delete(targetId)
+            return next
+          })
           pushToast(`${labelOf(targetId)}: ${event.message}`, 'error')
           refreshSoon()
           break
@@ -342,6 +351,11 @@ export default function App() {
             `${prefix}queue finished — ${event.done} done, ${event.failed} failed, ${event.skipped} skipped`
           )
           setRunningAccounts((prev) => {
+            const next = new Set(prev)
+            next.delete(targetId)
+            return next
+          })
+          setStoppingAccounts((prev) => {
             const next = new Set(prev)
             next.delete(targetId)
             return next
@@ -670,7 +684,16 @@ export default function App() {
       const result = await window.api.queue.stop(id)
       const message = result.stopped ? 'Stop requested — the in-flight job will finish' : 'Nothing to stop'
       if (result.stopped) {
+        // Keep it "running" until main reports the in-flight job settled, so Run
+        // stays disabled while the upload still holds the account lock.
+        setStoppingAccounts((prev) => new Set(prev).add(id))
+      } else {
         setRunningAccounts((prev) => {
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+        setStoppingAccounts((prev) => {
           const next = new Set(prev)
           next.delete(id)
           return next
@@ -716,11 +739,20 @@ export default function App() {
   async function stopAccount(id: string) {
     try {
       const result = await window.api.queue.stop(id)
-      setRunningAccounts((prev) => {
-        const next = new Set(prev)
-        next.delete(id)
-        return next
-      })
+      if (result.stopped) {
+        setStoppingAccounts((prev) => new Set(prev).add(id))
+      } else {
+        setRunningAccounts((prev) => {
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+        setStoppingAccounts((prev) => {
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+      }
       pushToast(result.stopped ? `Stopping "${labelOf(id)}"` : 'Nothing to stop', result.stopped ? 'ok' : 'info')
     } catch (e) {
       pushToast(`Stop failed: ${errText(e)}`, 'error')
@@ -1225,6 +1257,8 @@ export default function App() {
             onRun={(id) => void runAccount(id)}
             onStop={(id) => void stopAccount(id)}
             onChanged={() => void refreshAccounts()}
+            onNotify={pushToast}
+            stoppingAccounts={stoppingAccounts}
           />
         ) : (
           <>
@@ -1242,9 +1276,9 @@ export default function App() {
                 <ToggleSwitch checked={headed} onChange={setHeaded} label="Show browser" />
               </label>
               {isCurrentRunning ? (
-                <button type="button" className="btn danger" onClick={() => void stopQueue()} disabled={busy}>
+                <button type="button" className="btn danger" onClick={() => void stopQueue()} disabled={busy || isCurrentStopping}>
                   <StopIcon />
-                  Stop
+                  {isCurrentStopping ? 'Stopping…' : 'Stop'}
                 </button>
               ) : (
                 <button
@@ -1585,6 +1619,7 @@ export default function App() {
       {bulkOpen ? (
         <BulkModal
           count={schedulableCount}
+          accountId={currentAccount?.id}
           defaultEvery={currentAccount?.defaults?.bulkEvery}
           defaultJitter={currentAccount?.defaults?.bulkJitter}
           defaultWindow={currentAccount?.defaults?.bulkWindow}
