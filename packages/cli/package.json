@@ -1,0 +1,21 @@
+{
+  "name": "@tiktok-uploader/cli",
+  "version": "2.0.0",
+  "private": true,
+  "description": "tiktok-up: scriptable uploader CLI",
+  "bin": {
+    "tiktok-up": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@tiktok-uploader/core": "2.0.0",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2"
+  }
+}

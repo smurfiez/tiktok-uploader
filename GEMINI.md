@@ -1,3 +1,1 @@
-Tiktok uploader is a utility for uploading tiktok vidoes using a browser automation.
-
-For dependency managment, use `uv`
+See `CLAUDE.md` for project guidance and `PLAN.md` for the spec.

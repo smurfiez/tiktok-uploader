@@ -1,0 +1,29 @@
+{
+  "name": "tiktok-uploader",
+  "version": "2.0.0",
+  "private": true,
+  "description": "TikTok uploader: shared TypeScript engine with a desktop app and a CLI",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build:core": "npm run build -w @tiktok-uploader/core",
+    "build:cli": "npm run build:core && npm run build -w @tiktok-uploader/cli",
+    "typecheck": "npm run typecheck -w @tiktok-uploader/core && npm run typecheck -w @tiktok-uploader/cli && npm run typecheck -w @tiktok-uploader/desktop",
+    "test": "vitest run",
+    "dev:desktop": "npm run dev -w @tiktok-uploader/desktop",
+    "dist:desktop": "npm run dist -w @tiktok-uploader/desktop"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true,
+    "electron@33.4.11": true
+  }
+}
