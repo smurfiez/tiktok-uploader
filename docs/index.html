@@ -1,0 +1,1025 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>TikTok Uploader — Desktop App &amp; Scriptable CLI</title>
+    <meta
+      name="description"
+      content="Upload and schedule TikTok videos from a desktop app or scriptable CLI. One shared TypeScript engine driving your own Chrome, Edge, or Brave profile — no Python, no TikTok API keys."
+    />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="app.js"></script>
+  </head>
+  <body id="top">
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="#top">
+          <img src="icon.svg" alt="" width="28" height="28" class="brand-logo" aria-hidden="true" />
+          <span class="brand-name">TikTok Uploader</span>
+        </a>
+
+        <nav class="site-nav" aria-label="Primary">
+          <a href="#capabilities">Capabilities</a>
+          <a href="#interfaces">Interfaces</a>
+          <a href="#scheduler">Scheduler</a>
+          <a href="#architecture">Architecture</a>
+          <a href="#quick-start">Quick Start</a>
+          <a
+            class="nav-github"
+            href="https://github.com/smurfiez/tiktok-uploader"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M7 17 17 7M7 7h10v10" />
+            </svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <!-- Hero -->
+      <section class="hero">
+        <div class="hero-glow hero-glow-cyan" aria-hidden="true"></div>
+        <div class="hero-glow hero-glow-red" aria-hidden="true"></div>
+        <div class="container hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow">
+              <span class="eyebrow-dot" aria-hidden="true"></span>
+              v2.0 · macOS, Windows &amp; Linux · No Python
+            </p>
+            <h1>Upload &amp; schedule TikTok videos from one desktop app and CLI.</h1>
+            <p class="lead">
+              Built on one shared TypeScript engine driving your own installed Chrome, Edge, or Brave profile. No
+              bundled browser download, no TikTok developer API keys, and no proxy setup.
+            </p>
+
+            <div class="hero-actions">
+              <a class="btn btn-primary" href="#quick-start">
+                Quick Start
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M5 12h14M13 5l7 7-7 7" />
+                </svg>
+              </a>
+              <a
+                class="btn btn-secondary"
+                href="https://github.com/smurfiez/tiktok-uploader"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                View on GitHub
+              </a>
+            </div>
+
+            <div class="install-bar">
+              <pre role="region" aria-label="Clone and install command" tabindex="0"><code id="hero-install-cmd">git clone https://github.com/smurfiez/tiktok-uploader.git &amp;&amp; cd tiktok-uploader &amp;&amp; npm install</code></pre>
+              <span class="copy">
+                <button
+                  type="button"
+                  class="copy-button"
+                  command="--copy"
+                  commandfor="hero-install-cmd"
+                  aria-label="Copy clone and install command"
+                >
+                  <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="9" y="9" width="11" height="11" rx="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                  <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                </button>
+                <span class="tip" role="status"></span>
+              </span>
+            </div>
+          </div>
+
+          <div class="hero-preview">
+            <div class="tabs preview-tabs">
+              <div class="tablist" focusgroup="tablist nomemory" aria-label="Product preview mode">
+                <button type="button" role="tab" id="preview-tab-desktop" aria-selected="true" focusgroupstart>
+                  Desktop Queue UI
+                </button>
+                <button type="button" role="tab" id="preview-tab-cli" aria-selected="false">
+                  CLI NDJSON Stream
+                </button>
+              </div>
+
+              <div class="tab-panels">
+                <div role="tabpanel" aria-labelledby="preview-tab-desktop" tabindex="0">
+                  <div class="tab-panel-body mockup-shell" aria-label="Desktop queue interface preview">
+                    <div class="mockup-topbar">
+                      <div class="mockup-title-group">
+                        <img src="icon.svg" alt="" width="18" height="18" aria-hidden="true" />
+                        <span class="mockup-account">Brand Main</span>
+                        <span class="mockup-id">main</span>
+                        <span class="status-chip ok"><span class="dot"></span>Signed in</span>
+                      </div>
+                      <div class="mockup-controls">
+                        <span class="mockup-pill">Headless</span>
+                        <span class="mockup-run">Run (4)</span>
+                      </div>
+                    </div>
+
+                    <div class="mockup-table-wrap">
+                      <table class="mockup-table">
+                        <caption class="sr-only">Sample desktop upload queue rows</caption>
+                        <thead>
+                          <tr>
+                            <th scope="col">Video</th>
+                            <th scope="col">Caption</th>
+                            <th scope="col">Schedule</th>
+                            <th scope="col">Flags</th>
+                            <th scope="col">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td>
+                              <span class="file-name">01_hook_reveal.mp4</span>
+                              <span class="file-meta">14.2 MB</span>
+                            </td>
+                            <td>
+                              <span class="caption-line">Behind the scenes on the v2 build #devlog</span>
+                              <span class="char-meta">41 / 150</span>
+                            </td>
+                            <td class="mono">Tomorrow 18:00</td>
+                            <td>
+                              <span class="flag">Everyone</span>
+                              <span class="flag">AI</span>
+                            </td>
+                            <td><span class="pill done">Done</span></td>
+                          </tr>
+                          <tr>
+                            <td>
+                              <span class="file-name">02_workflow_clip.mp4</span>
+                              <span class="file-meta">22.8 MB</span>
+                            </td>
+                            <td>
+                              <span class="caption-line">Auto-staggering 10 clips on a 5-min grid</span>
+                              <span class="char-meta">40 / 150</span>
+                            </td>
+                            <td class="mono">Nov 27 09:05</td>
+                            <td>
+                              <span class="flag">Everyone</span>
+                            </td>
+                            <td><span class="pill running">Running</span></td>
+                          </tr>
+                          <tr>
+                            <td>
+                              <span class="file-name">03_tips_cut.mov</span>
+                              <span class="file-meta">18.4 MB</span>
+                            </td>
+                            <td>
+                              <span class="caption-line">Quick lighting setup in 20 seconds</span>
+                              <span class="char-meta">33 / 150</span>
+                            </td>
+                            <td class="mono">Nov 27 18:10</td>
+                            <td>
+                              <span class="flag">Friends</span>
+                              <span class="flag">Draft</span>
+                            </td>
+                            <td><span class="pill pending">Pending</span></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div class="mockup-log">
+                      <span class="log-badge">LOG</span>
+                      <span class="mono">18:02:14 · 02_workflow_clip.mp4: uploading → setting schedule 09:05 → verifying</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div role="tabpanel" aria-labelledby="preview-tab-cli" hidden="until-found">
+                  <div class="tab-panel-body terminal-card">
+                    <div class="terminal-bar">
+                      <span class="terminal-title mono">tiktok-up — NDJSON stream</span>
+                      <span class="copy">
+                        <button
+                          type="button"
+                          class="copy-button"
+                          command="--copy"
+                          commandfor="cli-stream-snippet"
+                          aria-label="Copy CLI NDJSON command"
+                        >
+                          <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect x="9" y="9" width="11" height="11" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                          <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                        </button>
+                        <span class="tip" role="status"></span>
+                      </span>
+                    </div>
+                    <pre role="region" aria-label="CLI command and NDJSON output" tabindex="0"><code id="cli-stream-snippet">tiktok-up upload ./clips --account main --start "tomorrow 18:00" --every 12h --jitter 15m --window "09:00-21:00" --json</code></pre>
+                    <div class="ndjson-stream mono" aria-label="Sample NDJSON output lines">
+                      <div><span class="tok-dim">{"event":</span><span class="tok-cyan">"batch_start"</span><span class="tok-dim">,"account":"main","total":3,"headless":true}</span></div>
+                      <div><span class="tok-dim">{"event":</span><span class="tok-amber">"job_stage"</span><span class="tok-dim">,"file":"01_hook_reveal.mp4","stage":"uploading"}</span></div>
+                      <div><span class="tok-dim">{"event":</span><span class="tok-green">"job_done"</span><span class="tok-dim">,"file":"01_hook_reveal.mp4","status":"done","scheduledAt":"2026-11-26T18:00:00Z"}</span></div>
+                      <div><span class="tok-dim">{"event":</span><span class="tok-green">"batch_done"</span><span class="tok-dim">,"done":3,"failed":0,"skipped":0}</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Capabilities -->
+      <section id="capabilities" class="section">
+        <div class="container">
+          <div class="section-head reveal">
+            <p class="section-kicker">Core Capabilities</p>
+            <h2>Built for unattended reliability, not brittle scripts.</h2>
+            <p class="section-lead">
+              Every rule — schedules, session checks, PID locks, and TikTok selectors — lives in a single shared
+              TypeScript core used identically by the Electron app and the CLI.
+            </p>
+          </div>
+
+          <div class="cap-grid">
+            <article class="cap-card reveal">
+              <div class="cap-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2 2 7l10 5 10-5-10-5Z" />
+                  <path d="m2 17 10 5 10-5" />
+                  <path d="m2 12 10 5 10-5" />
+                </svg>
+              </div>
+              <h3>One Shared TypeScript Engine</h3>
+              <p>
+                Desktop and CLI both import <code>@tiktok-uploader/core</code>. All TikTok URLs, waits, and DOM locators
+                live in one file (<code>selectors.ts</code>), so a TikTok UI update is a single-file fix.
+              </p>
+            </article>
+
+            <article class="cap-card reveal">
+              <div class="cap-icon cap-icon-cyan" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="4" width="18" height="14" rx="2" />
+                  <path d="M8 21h8M12 18v3" />
+                </svg>
+              </div>
+              <h3>Real Browser Auth</h3>
+              <p>
+                Drives your installed Brave, Chrome, or Edge via Playwright's <code>launchPersistentContext</code>. Native
+                UA/TLS fingerprint, persistent session storage, plus Netscape <code>cookies.txt</code> import/export.
+              </p>
+            </article>
+
+            <article class="cap-card reveal">
+              <div class="cap-icon cap-icon-amber" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="5" y="11" width="14" height="10" rx="2" />
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+              </div>
+              <h3>Multi-Account + PID Lock Safety</h3>
+              <p>
+                Each account owns an isolated profile guarded by <code>account.lock</code> (stale PIDs are reclaimed).
+                Different accounts run in parallel; colliding runs on the same account exit cleanly with code
+                <code>4</code>.
+              </p>
+            </article>
+
+            <article class="cap-card reveal">
+              <div class="cap-icon cap-icon-red" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
+              </div>
+              <h3>Headless + Failure Screenshots</h3>
+              <p>
+                Runs headless by default, failing fast with exit code <code>3</code> on captcha challenges and saving
+                full-page screenshots to <code>failures/*.png</code>. Toggle <strong>Show browser</strong> or
+                <code>--headed</code> anytime.
+              </p>
+            </article>
+
+            <article class="cap-card reveal">
+              <div class="cap-icon cap-icon-cyan" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <path d="M16 2v4M8 2v4M3 10h18" />
+                </svg>
+              </div>
+              <h3>Smart Bulk Scheduling</h3>
+              <p>
+                Enforces TikTok's 5-minute grid, 20+ minute lead time, and 10-day (or 30-day Studio) horizon. Supports
+                per-slot random jitter and quiet-hours windows that wrap cleanly across days.
+              </p>
+            </article>
+
+            <article class="cap-card reveal">
+              <div class="cap-icon cap-icon-green" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-3-6.7" />
+                  <path d="M21 3v5h-5" />
+                </svg>
+              </div>
+              <h3>Crash-Safe Persisted Queue</h3>
+              <p>
+                Every row and status persists to <code>queue.json</code> while Electron holds a
+                <code>powerSaveBlocker</code> during runs. Restarting never loses progress — click
+                <strong>Retry Failed</strong> or run <code>queue retry-failed</code>.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- Interfaces -->
+      <section id="interfaces" class="section section-alt">
+        <div class="container">
+          <div class="section-head reveal">
+            <p class="section-kicker">Two Interfaces, One Profile</p>
+            <h2>Work visually in the Desktop App or automate with <code>tiktok-up</code>.</h2>
+            <p class="section-lead">
+              A sign-in in either interface is immediately active in both. Use the GUI to curate captions and inspect
+              failures, or drive headless batches from cron.
+            </p>
+          </div>
+
+          <div class="tabs interface-tabs reveal">
+            <div class="tablist" focusgroup="tablist nomemory" aria-label="Interface documentation">
+              <button type="button" role="tab" id="iface-tab-desktop" aria-selected="true" focusgroupstart>
+                Desktop App
+              </button>
+              <button type="button" role="tab" id="iface-tab-cli" aria-selected="false">
+                CLI (tiktok-up)
+              </button>
+              <button type="button" role="tab" id="iface-tab-cron" aria-selected="false">
+                Cron &amp; Exit Codes
+              </button>
+            </div>
+
+            <div class="tab-panels">
+              <!-- Desktop App Panel -->
+              <div role="tabpanel" aria-labelledby="iface-tab-desktop" tabindex="0">
+                <div class="tab-panel-body">
+                  <ol class="workflow-grid">
+                    <li>
+                      <span class="step-num">01</span>
+                      <div>
+                        <h3>Pick or Add Account &amp; Sign In</h3>
+                        <p>
+                          Select an account or click <strong>Add Account</strong>. If the status chip shows Expired,
+                          click <strong>Sign In</strong> to authenticate once in your real browser window (or import a
+                          Netscape <code>cookies.txt</code>).
+                        </p>
+                      </div>
+                    </li>
+                    <li>
+                      <span class="step-num">02</span>
+                      <div>
+                        <h3>Drop Videos or a Folder</h3>
+                        <p>
+                          Use <strong>Add Videos</strong>, <strong>Add Folder</strong>, or drag files and directories
+                          directly onto the window. Supported formats include <code>mp4</code>, <code>mov</code>,
+                          <code>webm</code>, <code>mkv</code>, and more.
+                        </p>
+                      </div>
+                    </li>
+                    <li>
+                      <span class="step-num">03</span>
+                      <div>
+                        <h3>Review Sidecar Captions &amp; Flags</h3>
+                        <p>
+                          Captions preload from matching <code>&lt;video&gt;.txt</code> sidecars (or leave empty/edit
+                          inline, with a 150-char feed warning and 2,200-char limit). Toggle visibility, Draft, AI label,
+                          Comment, Duet, and Stitch per row.
+                        </p>
+                      </div>
+                    </li>
+                    <li>
+                      <span class="step-num">04</span>
+                      <div>
+                        <h3>Bulk Schedule</h3>
+                        <p>
+                          Set a start time, interval (e.g. <code>12h</code>, <code>1d</code>), optional jitter
+                          (<code>15m</code>), and allowed posting window (<code>09:00-21:00</code>). Drafts and private
+                          rows are skipped automatically; every row stays editable afterward.
+                        </p>
+                      </div>
+                    </li>
+                    <li>
+                      <span class="step-num">05</span>
+                      <div>
+                        <h3>Confirm &amp; Run Headless</h3>
+                        <p>
+                          Click <strong>Run</strong> to review the pre-run summary (account, video count, schedule span,
+                          empty captions). Batches execute headless by default unless <strong>Show browser</strong> is
+                          toggled on.
+                        </p>
+                      </div>
+                    </li>
+                    <li>
+                      <span class="step-num">06</span>
+                      <div>
+                        <h3>Live Logs, Screenshots &amp; Retry</h3>
+                        <p>
+                          Monitor stage updates in the collapsible log drawer (with one-click <strong>Copy</strong>).
+                          Failed rows link straight to full-page failure screenshots, and <strong>Retry Failed</strong>
+                          requeues only what failed.
+                        </p>
+                      </div>
+                    </li>
+                  </ol>
+                </div>
+              </div>
+
+              <!-- CLI Panel -->
+              <div role="tabpanel" aria-labelledby="iface-tab-cli" hidden="until-found">
+                <div class="tab-panel-body recipe-grid">
+                  <article class="recipe-card">
+                    <div class="recipe-head">
+                      <h3 id="recipe-auth">Accounts &amp; Login</h3>
+                      <span class="copy">
+                        <button
+                          type="button"
+                          class="copy-button"
+                          command="--copy"
+                          commandfor="code-recipe-auth"
+                          aria-label="Copy accounts and login commands"
+                        >
+                          <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect x="9" y="9" width="11" height="11" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                          <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                        </button>
+                        <span class="tip" role="status"></span>
+                      </span>
+                    </div>
+                    <pre role="region" aria-labelledby="recipe-auth" tabindex="0"><code id="code-recipe-auth">tiktok-up accounts add main --label "Brand Main"
+tiktok-up login --account main
+tiktok-up auth status --account main</code></pre>
+                  </article>
+
+                  <article class="recipe-card">
+                    <div class="recipe-head">
+                      <h3 id="recipe-stagger">Staggered Bulk Upload &amp; Dry Run</h3>
+                      <span class="copy">
+                        <button
+                          type="button"
+                          class="copy-button"
+                          command="--copy"
+                          commandfor="code-recipe-stagger"
+                          aria-label="Copy staggered bulk upload commands"
+                        >
+                          <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect x="9" y="9" width="11" height="11" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                          <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                        </button>
+                        <span class="tip" role="status"></span>
+                      </span>
+                    </div>
+                    <pre role="region" aria-labelledby="recipe-stagger" tabindex="0"><code id="code-recipe-stagger"># Preview slots without launching a browser
+tiktok-up upload ./clips --account main \
+  --start "tomorrow 18:00" --every 12h \
+  --jitter 15m --window "09:00-21:00" --dry-run
+
+# Run headless batch
+tiktok-up upload ./clips --account main \
+  --start "tomorrow 18:00" --every 12h \
+  --jitter 15m --window "09:00-21:00"</code></pre>
+                  </article>
+
+                  <article class="recipe-card">
+                    <div class="recipe-head">
+                      <h3 id="recipe-single">Single Headed / Draft + AI Label</h3>
+                      <span class="copy">
+                        <button
+                          type="button"
+                          class="copy-button"
+                          command="--copy"
+                          commandfor="code-recipe-single"
+                          aria-label="Copy single headed and draft commands"
+                        >
+                          <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect x="9" y="9" width="11" height="11" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                          <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                        </button>
+                        <span class="tip" role="status"></span>
+                      </span>
+                    </div>
+                    <pre role="region" aria-labelledby="recipe-single" tabindex="0"><code id="code-recipe-single"># Post immediately with a visible browser
+tiktok-up upload ./clip.mp4 --account main --headed
+
+# Save as draft with AI-generated label
+tiktok-up upload ./clip.mp4 --account main --draft --ai-label</code></pre>
+                  </article>
+
+                  <article class="recipe-card">
+                    <div class="recipe-head">
+                      <h3 id="recipe-recover">Queue Recovery &amp; Diagnostics</h3>
+                      <span class="copy">
+                        <button
+                          type="button"
+                          class="copy-button"
+                          command="--copy"
+                          commandfor="code-recipe-recover"
+                          aria-label="Copy queue recovery and doctor commands"
+                        >
+                          <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect x="9" y="9" width="11" height="11" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                          <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                        </button>
+                        <span class="tip" role="status"></span>
+                      </span>
+                    </div>
+                    <pre role="region" aria-labelledby="recipe-recover" tabindex="0"><code id="code-recipe-recover">tiktok-up queue status --account main
+tiktok-up queue retry-failed --account main --headed
+tiktok-up queue clear --account main --completed-only
+tiktok-up doctor --account main</code></pre>
+                  </article>
+                </div>
+              </div>
+
+              <!-- Cron & Exit Codes Panel -->
+              <div role="tabpanel" aria-labelledby="iface-tab-cron" hidden="until-found">
+                <div class="tab-panel-body cron-layout">
+                  <div class="cron-blocks">
+                    <article class="recipe-card">
+                      <div class="recipe-head">
+                        <h3 id="cron-line-heading">Crontab Entry</h3>
+                        <span class="copy">
+                          <button
+                            type="button"
+                            class="copy-button"
+                            command="--copy"
+                            commandfor="code-cron-line"
+                            aria-label="Copy crontab entry"
+                          >
+                            <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <rect x="9" y="9" width="11" height="11" rx="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                            <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <path d="M20 6 9 17l-5-5" />
+                            </svg>
+                          </button>
+                          <span class="tip" role="status"></span>
+                        </span>
+                      </div>
+                      <pre role="region" aria-labelledby="cron-line-heading" tabindex="0"><code id="code-cron-line">30 3 * * * tiktok-up upload /srv/tiktok/inbox --account main --start "tomorrow 18:00" --every 1d --json &gt;&gt; /var/log/tiktok.jsonl 2&gt;&gt; /var/log/tiktok.err</code></pre>
+                    </article>
+
+                    <article class="recipe-card">
+                      <div class="recipe-head">
+                        <h3 id="ndjson-heading">NDJSON Event Stream (<code>--json</code>)</h3>
+                        <span class="copy">
+                          <button
+                            type="button"
+                            class="copy-button"
+                            command="--copy"
+                            commandfor="code-ndjson-sample"
+                            aria-label="Copy sample NDJSON events"
+                          >
+                            <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <rect x="9" y="9" width="11" height="11" rx="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                            <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <path d="M20 6 9 17l-5-5" />
+                            </svg>
+                          </button>
+                          <span class="tip" role="status"></span>
+                        </span>
+                      </div>
+                      <pre role="region" aria-labelledby="ndjson-heading" tabindex="0"><code id="code-ndjson-sample">{"event":"batch_start","account":"main","total":2,"headless":true}
+{"event":"job_stage","jobId":"a1b2","file":"/srv/tiktok/inbox/clip1.mp4","stage":"uploading"}
+{"event":"job_done","jobId":"a1b2","file":"/srv/tiktok/inbox/clip1.mp4","status":"done","scheduledAt":"2026-12-01T18:00:00.000Z"}
+{"event":"job_failed","jobId":"c3d4","file":"/srv/tiktok/inbox/clip2.mp4","status":"failed","error":"Captcha challenge detected","screenshot":".../failures/c3d4.png"}
+{"event":"batch_done","done":1,"failed":1,"skipped":0}</code></pre>
+                    </article>
+                  </div>
+
+                  <div class="table-card">
+                    <table class="data-table">
+                      <caption>Deterministic CLI Exit Codes</caption>
+                      <thead>
+                        <tr>
+                          <th scope="col">Code</th>
+                          <th scope="col">Meaning</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td><code class="code-badge ok">0</code></td>
+                          <td>All jobs succeeded (or dry run passed)</td>
+                        </tr>
+                        <tr>
+                          <td><code class="code-badge">1</code></td>
+                          <td>Unexpected runtime error</td>
+                        </tr>
+                        <tr>
+                          <td><code class="code-badge">2</code></td>
+                          <td>Invalid arguments, missing files, schedule or caption validation</td>
+                        </tr>
+                        <tr>
+                          <td><code class="code-badge warn">3</code></td>
+                          <td>Not signed in, session expired, or captcha challenge</td>
+                        </tr>
+                        <tr>
+                          <td><code class="code-badge warn">4</code></td>
+                          <td>Account locked by another process (CLI vs. desktop)</td>
+                        </tr>
+                        <tr>
+                          <td><code class="code-badge warn">5</code></td>
+                          <td>Partial failure (some succeeded, some failed)</td>
+                        </tr>
+                        <tr>
+                          <td><code class="code-badge bad">6</code></td>
+                          <td>All jobs failed</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Interactive Bulk Schedule Simulator -->
+      <section id="scheduler" class="section">
+        <div class="container">
+          <div class="section-head reveal">
+            <p class="section-kicker">Interactive Bulk Schedule Simulator</p>
+            <h2>Preview 5-minute staggered slots before touching TikTok.</h2>
+            <p class="section-lead">
+              Mirrors <code>buildStaggeredSchedule</code> in <code>packages/core</code>: slots start tomorrow at
+              18:00 local time, stay at least 20 minutes ahead, round onto TikTok's 5-minute grid, apply jitter, and
+              push out of quiet hours.
+            </p>
+          </div>
+
+          <div class="sim-shell reveal">
+            <form class="sim-controls" onsubmit="return false">
+              <div class="field">
+                <label for="sim-count">Video count</label>
+                <input id="sim-count" type="number" min="1" max="10" value="5" />
+              </div>
+
+              <div class="field">
+                <label for="sim-every">Interval (<code>--every</code>)</label>
+                <select id="sim-every">
+                  <option value="6h">6 hours (6h)</option>
+                  <option value="12h" selected>12 hours (12h)</option>
+                  <option value="1d">24 hours (1d)</option>
+                  <option value="2d">48 hours (2d)</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="sim-jitter">Random jitter (<code>--jitter</code>)</label>
+                <select id="sim-jitter">
+                  <option value="0m">Off (0m)</option>
+                  <option value="15m" selected>±15 minutes (15m)</option>
+                  <option value="30m">±30 minutes (30m)</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="sim-window">Allowed window (<code>--window</code>)</label>
+                <select id="sim-window">
+                  <option value="09:00-21:00" selected>09:00–21:00</option>
+                  <option value="10:00-22:00">10:00–22:00</option>
+                  <option value="">Off (24h)</option>
+                </select>
+              </div>
+
+              <button type="button" id="sim-regen" class="btn btn-secondary sim-regen">
+                Regenerate jitter
+              </button>
+            </form>
+
+            <div class="sim-results">
+              <div class="sim-list-header">
+                <span class="sim-meta" id="sim-summary">5 slots · 5-min aligned · 10-day standard horizon</span>
+              </div>
+              <ol class="sim-slots" id="sim-slots" aria-live="polite"></ol>
+
+              <div class="sim-cmd-box">
+                <div class="recipe-head">
+                  <span class="sim-cmd-label" id="sim-cmd-heading">Equivalent CLI Command</span>
+                  <span class="copy">
+                    <button
+                      type="button"
+                      class="copy-button"
+                      command="--copy"
+                      commandfor="sim-cli-cmd"
+                      aria-label="Copy generated tiktok-up upload command"
+                    >
+                      <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect x="9" y="9" width="11" height="11" rx="2" />
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                      </svg>
+                      <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    </button>
+                    <span class="tip" role="status"></span>
+                  </span>
+                </div>
+                <pre role="region" aria-labelledby="sim-cmd-heading" tabindex="0"><code id="sim-cli-cmd"></code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Architecture & Shared Data -->
+      <section id="architecture" class="section section-alt">
+        <div class="container">
+          <div class="section-head reveal">
+            <p class="section-kicker">Architecture &amp; Shared Data</p>
+            <h2>Clean boundaries, zero duplicated logic.</h2>
+            <p class="section-lead">
+              The React renderer never touches the filesystem, profiles, or cookies. Everything flows through one shared
+              engine and one OS data directory.
+            </p>
+          </div>
+
+          <div class="arch-diagram reveal" aria-label="System architecture flow">
+            <div class="arch-col">
+              <div class="arch-node">
+                <span class="arch-tag">packages/desktop</span>
+                <strong>Desktop Renderer (React)</strong>
+                <span>Pure view via preload <code>window.api</code></span>
+              </div>
+              <div class="arch-node">
+                <span class="arch-tag">packages/cli</span>
+                <strong>CLI (Commander)</strong>
+                <span><code>tiktok-up</code> · TTY &amp; <code>--json</code> NDJSON</span>
+              </div>
+            </div>
+
+            <div class="arch-arrow" aria-hidden="true">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14M13 5l7 7-7 7" />
+              </svg>
+            </div>
+
+            <div class="arch-node arch-node-core">
+              <span class="arch-tag">packages/core</span>
+              <strong>@tiktok-uploader/core</strong>
+              <span>Profiles · PID Locks · Schedules · Queue · <code>selectors.ts</code></span>
+            </div>
+
+            <div class="arch-arrow" aria-hidden="true">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14M13 5l7 7-7 7" />
+              </svg>
+            </div>
+
+            <div class="arch-node">
+              <span class="arch-tag">playwright-core</span>
+              <strong>Installed Browser</strong>
+              <span><code>CHROME_PATH</code> → Brave → Chrome → Edge</span>
+            </div>
+          </div>
+
+          <div class="data-grid reveal">
+            <div class="tree-card">
+              <div class="recipe-head">
+                <h3 id="datadir-tree-heading">Shared <code>&lt;dataDir&gt;</code> Layout</h3>
+              </div>
+              <pre role="region" aria-labelledby="datadir-tree-heading" tabindex="0"><code>&lt;dataDir&gt;/                      # TIKTOK_UPLOADER_HOME overrides
+  settings.json                 # browserPath, maxScheduleDays, theme
+  accounts.json                 # registered accounts &amp; labels
+  profiles/&lt;accountId&gt;/
+    browser-profile/            # persistent Chromium userDataDir
+    cookies.txt                 # optional Netscape fallback (0600)
+    queue.json                  # persisted job rows &amp; statuses
+    account.lock                # PID lockfile (reclaimed if stale)
+    failures/                   # full-page screenshots on failure</code></pre>
+            </div>
+
+            <div class="table-card">
+              <table class="data-table">
+                <caption>Default Data Directory by OS (overridden by <code>TIKTOK_UPLOADER_HOME</code>)</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Platform</th>
+                    <th scope="col">Path</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>macOS</td>
+                    <td><code>~/Library/Application Support/tiktok-uploader</code></td>
+                  </tr>
+                  <tr>
+                    <td>Windows</td>
+                    <td><code>%APPDATA%\tiktok-uploader</code></td>
+                  </tr>
+                  <tr>
+                    <td>Linux</td>
+                    <td><code>$XDG_CONFIG_HOME/tiktok-uploader</code> (or <code>~/.config/tiktok-uploader</code>)</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Quick Start & FAQ -->
+      <section id="quick-start" class="section">
+        <div class="container">
+          <div class="section-head reveal">
+            <p class="section-kicker">Quick Start</p>
+            <h2>Run from source in under two minutes.</h2>
+            <p class="section-lead">
+              Requires Node.js 20+ and an existing installation of Chrome, Edge, or Brave on macOS, Windows, or Linux.
+            </p>
+          </div>
+
+          <div class="qs-grid reveal">
+            <article class="recipe-card">
+              <div class="recipe-head">
+                <h3 id="qs-install-heading">Install &amp; Link CLI</h3>
+                <span class="copy">
+                  <button
+                    type="button"
+                    class="copy-button"
+                    command="--copy"
+                    commandfor="code-qs-install"
+                    aria-label="Copy install and CLI link commands"
+                  >
+                    <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="9" y="9" width="11" height="11" rx="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                    <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                  </button>
+                  <span class="tip" role="status"></span>
+                </span>
+              </div>
+              <pre role="region" aria-labelledby="qs-install-heading" tabindex="0"><code id="code-qs-install">npm install
+npm run build:cli
+npm link packages/cli   # puts `tiktok-up` on PATH</code></pre>
+            </article>
+
+            <article class="recipe-card">
+              <div class="recipe-head">
+                <h3 id="qs-desktop-heading">Run or Package Desktop App</h3>
+                <span class="copy">
+                  <button
+                    type="button"
+                    class="copy-button"
+                    command="--copy"
+                    commandfor="code-qs-desktop"
+                    aria-label="Copy desktop dev and build commands"
+                  >
+                    <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="9" y="9" width="11" height="11" rx="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                    <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                  </button>
+                  <span class="tip" role="status"></span>
+                </span>
+              </div>
+              <pre role="region" aria-labelledby="qs-desktop-heading" tabindex="0"><code id="code-qs-desktop"># Launch Electron in development mode
+npm run dev:desktop
+
+# Build dmg / nsis / AppImage + deb for the host OS
+npm run dist:desktop</code></pre>
+            </article>
+          </div>
+
+          <section class="accordion reveal" aria-labelledby="faq-heading">
+            <h2 id="faq-heading" class="faq-title">Frequently Asked Questions</h2>
+
+            <details name="faq">
+              <summary>Why doesn't it need TikTok API keys?</summary>
+              <div class="faq-body">
+                <p>
+                  Instead of requiring approved TikTok Content Posting API credentials, TikTok Uploader automates
+                  TikTok's creator upload page directly inside your real installed Chromium browser (Chrome, Edge, or
+                  Brave) using Playwright's persistent browser context.
+                </p>
+              </div>
+            </details>
+
+            <details name="faq">
+              <summary>Are my login cookies safe?</summary>
+              <div class="faq-body">
+                <p>
+                  Yes. Everything stays local inside your OS data directory (or <code>TIKTOK_UPLOADER_HOME</code>). Each
+                  account gets an isolated <code>browser-profile/</code> directory created with <code>0700</code>
+                  permissions on POSIX, and optional <code>cookies.txt</code> exports are written with
+                  <code>0600</code> permissions. Nothing is sent to third-party servers.
+                </p>
+              </div>
+            </details>
+
+            <details name="faq">
+              <summary>What happens when TikTok changes its upload page?</summary>
+              <div class="faq-body">
+                <p>
+                  Run <code>tiktok-up doctor --account main</code> first to verify your data directory, browser launch,
+                  session validity, and the upload page's root selector. Every TikTok URL, wait timeout, and DOM locator
+                  is isolated in <code>packages/core/src/selectors.ts</code> so updates are a single-file fix.
+                </p>
+              </div>
+            </details>
+
+            <details name="faq">
+              <summary>Can cron and the desktop app run at the same time?</summary>
+              <div class="faq-body">
+                <p>
+                  Yes across different accounts — different accounts run in parallel without conflict. For the same
+                  account, <code>account.lock</code> prevents two Chromium processes from corrupting the profile: the
+                  second process exits cleanly with code <code>4</code> (or shows a <strong>Locked by CLI</strong> chip
+                  in the desktop UI). Stale PID locks are automatically reclaimed.
+                </p>
+              </div>
+            </details>
+
+            <details name="faq">
+              <summary>Why can't I schedule drafts or private videos?</summary>
+              <div class="faq-body">
+                <p>
+                  TikTok only permits scheduling on public or friends-only posts — drafts and
+                  <code>private</code> ("Only me") uploads cannot be scheduled on the platform. Both the desktop Bulk
+                  Schedule dialog and the CLI enforce this upfront so invalid jobs never fail mid-upload.
+                </p>
+              </div>
+            </details>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div class="footer-brand">
+          <img src="icon.svg" alt="" width="24" height="24" aria-hidden="true" />
+          <div>
+            <strong>TikTok Uploader</strong>
+            <p class="footer-note">
+              MIT License · TypeScript fork of
+              <a
+                href="https://github.com/wkaisertexas/tiktok-uploader"
+                target="_blank"
+                rel="noopener noreferrer"
+              >wkaisertexas/tiktok-uploader</a>.
+            </p>
+          </div>
+        </div>
+        <div class="footer-links">
+          <a href="https://github.com/smurfiez/tiktok-uploader" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a
+            href="https://github.com/smurfiez/tiktok-uploader/blob/main/README.md"
+            target="_blank"
+            rel="noopener noreferrer"
+          >README.md</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

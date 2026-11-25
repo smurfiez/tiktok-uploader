@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { app, BrowserWindow, nativeTheme, session } from 'electron'
@@ -9,6 +10,7 @@ import type { ThemeMode } from '@tiktok-uploader/core'
 import { dispose, registerIpc } from './ipc'
 
 const rendererUrl = process.env.ELECTRON_RENDERER_URL
+const iconPath = join(__dirname, '../../build/icon.png')
 const LIGHT_BG = '#f5f6f8'
 const DARK_BG = '#0f1014'
 const CSP =
@@ -64,6 +66,7 @@ function createWindow(): BrowserWindow {
     backgroundColor: resolveBg(loadSettings().theme),
     show: false,
     title: 'TikTok Uploader',
+    ...(existsSync(iconPath) ? { icon: iconPath } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -101,9 +104,16 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     nativeTheme.themeSource = loadSettings().theme ?? 'system'
+    if (process.platform === 'darwin' && existsSync(iconPath)) app.dock?.setIcon(iconPath)
     applyCsp()
     registerIpc(() => window)
     window = createWindow()
+
+    // keeps the window chrome in step with the OS while the theme is 'system'
+    nativeTheme.on('updated', () => {
+      if (loadSettings().theme !== 'system') return
+      if (window && !window.isDestroyed()) window.setBackgroundColor(resolveBg('system'))
+    })
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) window = createWindow()

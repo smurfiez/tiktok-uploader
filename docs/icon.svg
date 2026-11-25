@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="tile-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1c1b26" />
+      <stop offset="100%" stop-color="#0d0c11" />
+    </linearGradient>
+    <radialGradient id="glow-cyan" cx="0.18" cy="0.16" r="0.62">
+      <stop offset="0%" stop-color="#25f4ee" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#25f4ee" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="glow-red" cx="0.84" cy="0.86" r="0.62">
+      <stop offset="0%" stop-color="#fe2c55" stop-opacity="0.24" />
+      <stop offset="100%" stop-color="#fe2c55" stop-opacity="0" />
+    </radialGradient>
+    <clipPath id="tile-clip">
+      <rect x="64" y="64" width="896" height="896" rx="200" />
+    </clipPath>
+    <g id="emblem" fill="none" stroke-width="76" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 340 456 L 512 276 L 684 456" />
+      <path d="M 512 288 L 512 604" />
+      <path d="M 288 612 L 288 684 Q 288 740 344 740 L 680 740 Q 736 740 736 684 L 736 612" />
+    </g>
+  </defs>
+
+  <g clip-path="url(#tile-clip)">
+    <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#tile-bg)" />
+    <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#glow-cyan)" />
+    <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#glow-red)" />
+
+    <use href="#emblem" transform="translate(-16, -12)" stroke="#25f4ee" />
+    <use href="#emblem" transform="translate(16, 12)" stroke="#fe2c55" />
+    <use href="#emblem" stroke="#ffffff" />
+  </g>
+
+  <rect
+    x="66"
+    y="66"
+    width="892"
+    height="892"
+    rx="198"
+    fill="none"
+    stroke="#ffffff"
+    stroke-opacity="0.1"
+    stroke-width="4"
+  />
+</svg>
