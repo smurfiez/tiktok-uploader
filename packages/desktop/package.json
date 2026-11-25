@@ -3,6 +3,7 @@
   "version": "2.0.0",
   "private": true,
   "description": "TikTok Uploader desktop app",
+  "author": "smurf",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -11,15 +12,15 @@
     "dist": "electron-vite build && electron-builder"
   },
   "dependencies": {
-    "@tiktok-uploader/core": "2.0.0",
     "playwright-core": "^1.49.1"
   },
   "devDependencies": {
+    "@tiktok-uploader/core": "2.0.0",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^33.2.1",
+    "electron": "33.4.11",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
     "react": "^18.3.1",
@@ -41,6 +42,7 @@
     "asarUnpack": [
       "node_modules/playwright-core/**"
     ],
+    "afterPack": "build/afterPack.js",
     "mac": {
       "icon": "build/icon.icns",
       "target": ["dmg"],

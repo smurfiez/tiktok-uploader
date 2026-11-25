@@ -303,7 +303,7 @@ When `--json` is passed, `stdout` emits one JSON object per line (NDJSON); all h
 | Cookie fallback perms | `0600` | User profile ACL | `0600` |
 | Lockfile check | `process.kill(pid, 0)` | `process.kill(pid, 0)` | `process.kill(pid, 0)` |
 | Desktop installer | `dmg` | `nsis` | `AppImage`, `deb` |
-| Signing | Apple ID + notarization (P5) | Optional cert; unsigned triggers SmartScreen | None |
+| Signing | Ad-hoc signed, not notarized: right-click → Open once | Unsigned: SmartScreen "Run anyway" | None |
 
 ---
 
@@ -357,6 +357,9 @@ Root workspace scripts:
 - `npm run dev:desktop` — `electron-vite` dev server.
 - `npm run build:cli` — compiles `packages/cli` (`tiktok-up` bin ready for `npm link` or global install).
 - `npm run dist:desktop` — `electron-vite build` + `electron-builder` for the host OS (`asarUnpack: ["**/node_modules/playwright-core/**"]`).
+- `.github/workflows/release.yml` — on a `v*` tag, builds the universal macOS `dmg` and the Windows `nsis` installer on GitHub runners and attaches both to the Release. Unsigned on purpose: `electron-builder ... -c.mac.identity=-` ad-hoc signs the mac app so macOS shows the "unidentified developer" dialog instead of "damaged".
+
+`@tiktok-uploader/core` is a **dev** dependency of `packages/desktop`: `electron.vite.config.ts` aliases it to `packages/core/src` and bundles it into `out/main`, so it must not be a runtime dependency or `electron-builder` tries to package the workspace symlink and fails with `<core>/dist/*.js must be under packages/desktop/`.
 
 ---
 
@@ -382,8 +385,8 @@ Build account switcher, queue table with per-row editors, Bulk Schedule modal, P
 Verify `tiktok-up doctor` selector health check, test `asarUnpack` in packaged `dmg`/`nsis`/`AppImage` builds, cross-platform smoke checks, and write `README.md` (install, multi-account setup, cron examples, troubleshooting).
 *Exit:* Packaged desktop app and linked CLI both pass the smoke checklist cleanly.
 
-**P5 — Distribution (optional).**
-macOS signing/notarization, Windows code signing, GitHub Actions CI matrix (macOS/Windows/Linux), auto-update.
+**P5 — Distribution.**
+GitHub Actions release workflow (macOS dmg + Windows nsis on tag). Remaining: paid signing/notarization, auto-update, Linux packages.
 
 ---
 

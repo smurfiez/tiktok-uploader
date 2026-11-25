@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  installers:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            build: npx electron-builder --mac --universal --publish never
+            artifacts: release/*.dmg
+          - os: windows-latest
+            build: npx electron-builder --win --publish never
+            artifacts: release/*.exe
+    runs-on: ${{ matrix.os }}
+    env:
+      # No certificate: electron-builder skips signing, and build/afterPack.js
+      # ad-hoc signs the mac app so macOS says "unidentified developer" (Right-click
+      # → Open) rather than "app is damaged".
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build -w @tiktok-uploader/desktop
+      - run: ${{ matrix.build }}
+        working-directory: packages/desktop
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: packages/desktop/${{ matrix.artifacts }}
+          fail_on_unmatched_files: true

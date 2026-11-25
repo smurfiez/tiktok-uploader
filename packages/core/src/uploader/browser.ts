@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { chromium, type BrowserContext, type Page } from 'playwright-core'
 
 import { TIMING } from '../selectors'
+import { launchElectronContext } from './electron'
 
 export class BrowserNotFoundError extends Error {
   constructor(message: string) {
@@ -24,6 +25,8 @@ export interface LaunchContextOptions {
   headless: boolean
   /** Explicit binary; falls back to CHROME_PATH, Chrome, Brave, Edge */
   browserPath?: string
+  /** Drive Electron's Chromium over CDP instead of launching a browser */
+  electron?: boolean
 }
 
 export interface LaunchedContext {
@@ -46,6 +49,12 @@ function braveBinary(): string | undefined {
 }
 
 export async function launchContext(options: LaunchContextOptions): Promise<LaunchedContext> {
+  if (options.electron ?? process.env.TIKTOK_UPLOADER_ELECTRON === '1') {
+    const launched = await launchElectronContext(options)
+    launched.page.setDefaultTimeout(TIMING.implicitWait)
+    return launched
+  }
+
   const explicit = process.env.CHROME_PATH?.trim() || options.browserPath?.trim()
   const brave = explicit ? undefined : braveBinary()
 
