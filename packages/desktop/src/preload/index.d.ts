@@ -8,15 +8,10 @@ import type {
   VideoItem
 } from '@tiktok-uploader/core'
 
-export interface SettingsView extends Settings {
-  /** never the key itself */
-  hasApiKey: boolean
-}
-
 export interface TiktokApi {
   settings: {
-    get(): Promise<SettingsView>
-    set(patch: Partial<Settings> & { captionApiKey?: string }): Promise<SettingsView>
+    get(): Promise<Settings>
+    set(patch: Partial<Settings>): Promise<Settings>
   }
   accounts: {
     list(): Promise<AccountSummary[]>
@@ -34,9 +29,6 @@ export interface TiktokApi {
     pick(): Promise<string[]>
     pickFolder(): Promise<string | null>
     list(directory: string): Promise<VideoItem[]>
-  }
-  captions: {
-    suggest(videoPath: string): Promise<{ caption: string; generated: boolean; error?: string }>
   }
   schedule: {
     stagger(count: number, rule: StaggerRule): Promise<string[]>

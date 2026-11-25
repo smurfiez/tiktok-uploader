@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { filenameTitle, isSupportedVideo, listVideos } from '../src/videos'
+import { filenameTitle, isSupportedVideo, listVideos, sidecarTitle } from '../src/videos'
 
 const dirs: string[] = []
 
@@ -29,6 +29,26 @@ describe('filenameTitle', () => {
 
   it('keeps dashes inside the title', () => {
     expect(filenameTitle('23-01-01_abcdefghijk_kpop-mix_2024.mp4')).toBe('kpop-mix 2024')
+  })
+})
+
+describe('sidecarTitle', () => {
+  it('uses the trimmed contents of the .txt sidecar', () => {
+    const dir = tempDir()
+    const video = join(dir, 'clip.mp4')
+    writeFileSync(video, 'x')
+    writeFileSync(join(dir, 'clip.txt'), '  Original Title  \n')
+
+    expect(sidecarTitle(video)).toBe('Original Title')
+  })
+
+  it('returns null when the sidecar is missing or empty', () => {
+    const dir = tempDir()
+    expect(sidecarTitle(join(dir, 'plain.mov'))).toBeNull()
+
+    const video = join(dir, 'empty.mp4')
+    writeFileSync(join(dir, 'empty.txt'), '   \n')
+    expect(sidecarTitle(video)).toBeNull()
   })
 })
 

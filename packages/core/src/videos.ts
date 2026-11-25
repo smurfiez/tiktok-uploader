@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 
 import type { VideoItem } from './types'
@@ -9,6 +9,16 @@ const RENDER_PREFIX = /^\d{2}-\d{2}-\d{2}_[\w-]{11}_/
 
 export function filenameTitle(videoPath: string): string {
   return basename(videoPath, extname(videoPath)).replace(RENDER_PREFIX, '').replace(/_/g, ' ').trim()
+}
+
+/** The `<video>.txt` sidecar title, or null when there is none. */
+export function sidecarTitle(videoPath: string): string | null {
+  const sidecar = videoPath.slice(0, videoPath.length - extname(videoPath).length) + '.txt'
+  try {
+    return readFileSync(sidecar, 'utf8').trim() || null
+  } catch {
+    return null
+  }
 }
 
 /** Supported videos directly inside `directory`, oldest name first. */

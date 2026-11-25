@@ -28,12 +28,12 @@ Runtime shape:
 
 ```text
 Desktop Renderer (React, sandboxed) ──ipc──▶ Desktop Main (Node) ──┐
-                                              safeStorage, dialogs  ├──▶ packages/core ──▶ Chromium via playwright-core
+                                              dialogs, windows      ├──▶ packages/core ──▶ Chromium via playwright-core
 CLI (Node / Commander) ────────────────────────────────────────────┘     profiles, locks,   (persistent context,
    pretty TTY or --json NDJSON, exit codes                               queue, upload       headless by default)
 ```
 
-All side effects live in `packages/core` and the Electron main process. The renderer is a pure view: it never touches the filesystem, browser profiles, cookies, or API keys.
+All side effects live in `packages/core` and the Electron main process. The renderer is a pure view: it never touches the filesystem, browser profiles or cookies.
 
 ---
 
@@ -44,7 +44,7 @@ An npm workspaces monorepo inside this repo; the Python package is unaffected. E
 ```text
 package.json                        npm workspaces root ("packages/*")                  [todo]
 tsconfig.base.json                  shared TypeScript compiler options                  [todo]
-PLAN.md                             this file                                           [done]
+docs/PLAN.md                        this file                                           [done]
 
 packages/
   core/                             Pure Node/TS (zero Electron imports)
@@ -57,7 +57,6 @@ packages/
       utils.ts                      sleep, duration parser                              [migrate]
       cookies.ts                    Netscape parse/serialize (import/export fallback)   [migrate]
       schedule.ts                   round-to-5, validity window, bulk stagger + jitter  [migrate+extend]
-      captions.ts                   sidecar title, model caption, reply parsing         [migrate]
       queue.ts                      persisted queue.json, serial runner, EventEmitter   [todo]
       uploader/
         browser.ts                  Chrome/Edge/Brave discovery, native UA,             [migrate+update]
@@ -65,7 +64,7 @@ packages/
         auth.ts                     session check, headed loginInteractive,             [migrate+update]
                                     cookies.txt bootstrap fallback, captcha detection
         upload.ts                   complete_upload_form port + failure screenshots     [migrate+update]
-    tests/*.test.ts                 cookies, schedule, stagger, captions, locks, files  [todo]
+    tests/*.test.ts                 cookies, schedule, stagger, locks, files           [todo]
 
   cli/                              Thin Node CLI (`tiktok-up`)
     package.json                    bin: tiktok-up, commander                           [todo]
@@ -80,7 +79,6 @@ packages/
     electron.vite.config.ts         main / preload / renderer builds                    [migrate]
     src/
       main/
-        store.ts                    settings.json + safeStorage API key encryption      [todo]
         ipc.ts                      ipcMain handlers, dialogs, powerSaveBlocker         [todo]
         index.ts                    window lifecycle, security policy, event bridge     [todo]
       preload/
@@ -119,7 +117,7 @@ packages/
 | `AuthBackend.authenticate_agent` | `auth.ts: ensureAuthenticated` | **deviation:** uses persistent browser profile; falls back to `cookies.txt` |
 | `login()` (credentials + captcha) | `auth.ts: loginInteractive` | **deviation:** always opens a headed window for real sign-in (QR/2FA/captcha) |
 | `get_cookies`, `save_cookies` | `cookies.ts: parseNetscape`, `serializeNetscape` | kept for import/export compatibility with legacy tools |
-| `source_title`, `rewrite_caption`, `auto_caption` | `captions.ts: sourceTitle`, `rewriteCaption`, `autoCaption` | same prompt and endpoint contract via `fetch` |
+| `source_title`, `rewrite_caption`, `auto_caption` | **removed** | AI caption generation dropped; `videos.ts: sidecarTitle` still reads `<video>.txt` |
 | `browsers.get_browser` | `uploader/browser.ts: launchContext` | **deviation:** `launchPersistentContext`, auto-detect Chrome/Edge/Brave, native UA (no Chrome-58 spoof) |
 | `chromeCookies.ts` (v1 draft) | **removed** | copying live Chrome profiles breaks on Windows App-Bound Encryption & macOS Keychain |
 
@@ -153,15 +151,11 @@ Both the desktop app and CLI share a single OS-standard data directory (`TIKTOK_
   "headless": true,
   "browserPath": "",              // Auto-detected Chrome/Edge/Brave when empty
   "maxScheduleDays": 10,          // 10 for standard web accounts, 30 for TikTok Studio
-  "captionEndpoint": "https://inference.do-ai.run/v1/chat/completions",
-  "captionModel": "anthropic-claude-sonnet-5.5",
-  "captionApiKeyEncrypted": "",   // Encrypted via Electron safeStorage in desktop; CLI uses env var
   "visibility": "everyone",
   "aiLabel": true
 }
 ```
 
-- `MODEL_ACCESS_KEY` from the environment always takes precedence over stored keys (required for unattended CLI/cron runs).
 - **Concurrency & Lockfile (`account.lock`):** Playwright persistent contexts cannot be opened by two processes simultaneously. Before launching a browser for an account, `core` writes `{ pid, source, startedAt }` to `account.lock` using exclusive file creation (`wx`). Stale locks (where the PID is no longer alive) are automatically reclaimed. Different accounts can run in parallel (e.g., Account A in the UI while cron runs Account B); colliding runs on the same account fail cleanly with exit code `4` (CLI) or an inline banner (UI).
 
 ---
@@ -224,7 +218,6 @@ tiktok-up upload <files-or-dir...> \
   --visibility everyone|friends|private \
   --draft \
   --ai-label / --no-ai-label \
-  --auto-caption \
   --headed \
   --dry-run \
   --json
@@ -268,8 +261,8 @@ When `--json` is passed, `stdout` emits one JSON object per line (NDJSON); all h
 
 | Channel | Direction | Payload | Returns |
 |---|---|---|---|
-| `settings:get` | invoke | — | `Settings` (with `hasApiKey: boolean`, never raw key) |
-| `settings:set` | invoke | `Partial<Settings>` + optional `captionApiKey` | `Settings` |
+| `settings:get` | invoke | — | `Settings` |
+| `settings:set` | invoke | `Partial<Settings>` | `Settings` |
 | `accounts:list` | invoke | — | `AccountSummary[]` (includes auth & lock status) |
 | `accounts:add` | invoke | `{ id, label }` | `AccountSummary` |
 | `accounts:remove` | invoke | `accountId` | `{ ok }` |
@@ -280,7 +273,6 @@ When `--json` is passed, `stdout` emits one JSON object per line (NDJSON); all h
 | `videos:pick` | invoke | — | `string[]` |
 | `videos:pick-folder` | invoke | — | `string \| null` |
 | `videos:list` | invoke | `directory` | `VideoItem[]` |
-| `caption:suggest` | invoke | `videoPath` | `{ caption, generated, error? }` |
 | `schedule:stagger` | invoke | `{ count, rule }` | `string[]` (ISO timestamps) |
 | `queue:load` | invoke | `accountId` | `Job[]` |
 | `queue:save` | invoke | `{ accountId, jobs }` | `{ ok }` |
@@ -308,8 +300,6 @@ When `--json` is passed, `stdout` emits one JSON object per line (NDJSON); all h
 |---|---|---|---|
 | Browser discovery | `CHROME_PATH` → Chrome/Edge/Brave in `/Applications` | `CHROME_PATH` → Registry / Program Files Chrome/Edge/Brave | `CHROME_PATH` → `which` google-chrome / chromium / brave |
 | Shared data root | `~/Library/Application Support/tiktok-uploader` | `%APPDATA%\tiktok-uploader` | `$XDG_CONFIG_HOME/tiktok-uploader` |
-| Secret storage (UI) | Keychain via Electron `safeStorage` | DPAPI via Electron `safeStorage` | libsecret/kwallet via `safeStorage` |
-| Secret storage (CLI) | `MODEL_ACCESS_KEY` env var | `MODEL_ACCESS_KEY` env var | `MODEL_ACCESS_KEY` env var |
 | Cookie fallback perms | `0600` | User profile ACL | `0600` |
 | Lockfile check | `process.kill(pid, 0)` | `process.kill(pid, 0)` | `process.kill(pid, 0)` |
 | Desktop installer | `dmg` | `nsis` | `AppImage`, `deb` |
@@ -322,7 +312,7 @@ When `--json` is passed, `stdout` emits one JSON object per line (NDJSON); all h
 Single window, three regions + two lightweight modals:
 
 1. **Toolbar** — Account switcher dropdown (with `Signed in` / `Expired` / `Locked by CLI` chip + Sign In / Add Account actions), Add videos, Add folder, **Bulk Schedule**, **Retry Failed**, Clear, **Show browser** toggle (off by default), Settings gear, Run, Stop.
-2. **Queue table** — one row per video: filename, sidecar/filename title, caption textarea with Generate button (soft badge over 150 chars, red error over 2,200 chars), schedule `datetime-local` (disabled when Draft or Private), visibility select, Draft / AI label / Comment / Duet / Stitch toggles, status pill, inline error with clickable failure screenshot link.
+2. **Queue table** — one row per video: filename, sidecar/filename title, caption textarea (soft badge over 150 chars, red error over 2,200 chars), schedule `datetime-local` (disabled when Draft or Private), visibility select, Draft / AI label / Comment / Duet / Stitch toggles, status pill, inline error with clickable failure screenshot link.
 3. **Log drawer** — timestamped live stream, auto-scrolled, copyable.
 4. **Bulk Schedule modal** — start date/time, interval (`every`), optional jitter, quiet-hours window, live preview of generated timestamps before applying to rows.
 5. **Pre-Run Confirmation modal** — displays target account, total count, schedule span, visibility summary, and missing captions before starting (guards against TikTok's inability to edit scheduled posts).
@@ -336,7 +326,7 @@ Drop-zone accepts files/folders via `webUtils.getPathForFile` in preload.
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, narrow typed `contextBridge` API.
 - Renderer CSP `default-src 'self'`, no remote content, no embedded webviews.
 - Block `will-navigate` and `setWindowOpenHandler` outside `tiktok.com` origins.
-- Cookie values and raw API keys never cross IPC; API keys encrypted at rest via `safeStorage`.
+- Cookie values never cross IPC.
 - `cookies.txt` written with `0600` permissions on POSIX; `browser-profile/` stays inside the OS user profile directory.
 
 ---
@@ -346,9 +336,8 @@ Drop-zone accepts files/folders via `webUtils.getPathForFile` in preload.
 Unit tests (Vitest in `packages/core` and `packages/cli`, no network, no browser):
 - `cookies`: Netscape parse (`#HttpOnly_`, comments, malformed rows), serialize round-trip, `sessionIdOf`.
 - `schedule`: `roundUpToFive`, validity edges (20 min min, 10/30-day max), `buildStaggeredSchedule` (intervals, jitter rounding, quiet-hours window wrapping), `calendarSteps`, `partsInZone` across DST.
-- `captions`: `sourceTitle` with/without sidecar, `parseReply` (hashtag dedupe, 2,200-char enforcement, invalid JSON).
 - `profiles`: account add/list/remove, PID lock acquisition, live-PID contention rejection, stale-PID lock reclamation.
-- `videos`: `isSupportedVideo` across extensions and casing.
+- `videos`: `sidecarTitle` with/without sidecar and `isSupportedVideo` across extensions and casing.
 - `cli`: NDJSON serialization, `--dry-run` validation, exit code mapping (`0`–`6`).
 
 Manual smoke checklist (per OS):
@@ -374,7 +363,7 @@ Root workspace scripts:
 ## 16. Phases
 
 **P0 — Monorepo & Core Migration.**
-Create npm workspaces (`core`, `cli`, `desktop`). Move existing `selectors.ts`, `cookies.ts`, `schedule.ts`, `captions.ts`, and `uploader/*` into `packages/core`. Fix `SUPPORTED_VIDEO_TYPES`. Switch `browser.ts` to `launchPersistentContext`, auto-detected Chromium, native UA, and `headless: true` default. Remove `chromeCookies.ts`. Add `profiles.ts` (multi-account + PID locks), `buildStaggeredSchedule`, persisted `queue.ts`, fail-fast captcha detection, and failure screenshot capture in `upload.ts`.
+Create npm workspaces (`core`, `cli`, `desktop`). Move existing `selectors.ts`, `cookies.ts`, `schedule.ts`, and `uploader/*` into `packages/core`. Fix `SUPPORTED_VIDEO_TYPES`. Switch `browser.ts` to `launchPersistentContext`, auto-detected Chromium, native UA, and `headless: true` default. Remove `chromeCookies.ts`. Add `profiles.ts` (multi-account + PID locks), `buildStaggeredSchedule`, persisted `queue.ts`, fail-fast captcha detection, and failure screenshot capture in `upload.ts`.
 *Exit:* `npm run typecheck` and `packages/core` Vitest suite green.
 
 **P1 — CLI (`packages/cli`).**
@@ -382,7 +371,7 @@ Implement `accounts`, `login`, `auth status`, `cookies`, `upload` (with `--start
 *Exit:* End-to-end terminal test against a real account: `login` → headless draft upload → headless scheduled upload → verify `queue.json`, NDJSON stream, exit codes, and a forced-failure screenshot.
 
 **P2 — Desktop Backend (`packages/desktop` main + preload).**
-Wire `store.ts` (`safeStorage`), `ipc.ts` (`powerSaveBlocker`, dialogs, core bridge), `index.ts`, and `preload/`.
+Wire `ipc.ts` (`powerSaveBlocker`, dialogs, core bridge), `index.ts`, and `preload/`.
 *Exit:* DevTools IPC check sees the exact account authenticated via CLI in P1, runs a headless draft, and respects `account.lock`.
 
 **P3 — Desktop UI (`packages/desktop` renderer).**

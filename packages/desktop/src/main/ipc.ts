@@ -12,7 +12,6 @@ import { BrowserWindow, dialog, ipcMain, powerSaveBlocker, shell } from 'electro
 import {
   addAccount,
   assertSchedulable,
-  autoCaption,
   buildStaggeredSchedule,
   cookiesPath,
   exportCookies,
@@ -27,6 +26,7 @@ import {
   removeAccount,
   runQueue,
   saveQueue,
+  saveSettings,
   serializeNetscape,
   setAccountLabel,
   SUPPORTED_VIDEO_TYPES
@@ -36,10 +36,9 @@ import type {
   AccountSummary,
   Job,
   QueueEvent,
+  Settings,
   StaggerRule
 } from '@tiktok-uploader/core'
-
-import { decryptedApiKey, loadSettingsView, updateSettings } from './store'
 
 interface ActiveRun {
   stop: () => void
@@ -78,11 +77,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return window ? dialog.showSaveDialog(window, options) : dialog.showSaveDialog(options)
   }
 
-  ipcMain.handle('settings:get', () => loadSettingsView())
-  ipcMain.handle(
-    'settings:set',
-    (_event, patch: Parameters<typeof updateSettings>[0]) => updateSettings(patch)
-  )
+  ipcMain.handle('settings:get', () => loadSettings())
+  ipcMain.handle('settings:set', (_event, patch: Partial<Settings>) => saveSettings(patch))
 
   ipcMain.handle('accounts:list', () => listAccounts().map(summarize))
 
@@ -193,19 +189,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   })
 
   ipcMain.handle('videos:list', (_event, directory: string) => listVideos(directory))
-
-  ipcMain.handle('caption:suggest', (_event, videoPath: string) => {
-    const settings = loadSettings()
-    return autoCaption(videoPath, {
-      endpoint: settings.captionEndpoint,
-      model: settings.captionModel,
-      apiKey: decryptedApiKey(),
-      minHashtags: 3,
-      maxHashtags: 6,
-      maxLength: 2200,
-      timeoutMs: 60_000
-    })
-  })
 
   ipcMain.handle('schedule:stagger', (_event, input: { count: number; rule: StaggerRule }) => {
     const now = new Date()

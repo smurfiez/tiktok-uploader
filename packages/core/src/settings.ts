@@ -9,9 +9,6 @@ export const DEFAULT_SETTINGS: Settings = {
   headless: true,
   browserPath: '',
   maxScheduleDays: 10,
-  captionEndpoint: 'https://inference.do-ai.run/v1/chat/completions',
-  captionModel: 'anthropic-claude-sonnet-5.5',
-  captionApiKeyEncrypted: '',
   visibility: 'everyone',
   aiLabel: true
 }
@@ -31,9 +28,6 @@ export function saveSettings(patch: Partial<Settings>): Settings {
   writeFileSync(settingsPath(), JSON.stringify(settings, null, 2) + '\n', 'utf8')
   return settings
 }
-
-/** The CLI and cron runs always use the env var; only the desktop decrypts the stored key. */
-export const captionApiKey = (): string => process.env.MODEL_ACCESS_KEY?.trim() ?? ''
 
 export const ensureDataDir = (): string => {
   const dir = dataDir()

@@ -15,11 +15,9 @@ import {
   addAccount,
   assertAccountId,
   assertSchedulable,
-  autoCaption,
   sidecarTitle,
   browserProfileDir,
   buildStaggeredSchedule,
-  captionApiKey,
   checkSession,
   cookiesPath,
   createJob,
@@ -42,7 +40,7 @@ import {
   serializeNetscape,
   setAccountLabel
 } from '@tiktok-uploader/core'
-import type { CaptionSettings, Job, QueueEvent, Settings, Visibility } from '@tiktok-uploader/core'
+import type { Job, QueueEvent, Settings, Visibility } from '@tiktok-uploader/core'
 
 import { ExitCode, resolveExitCode } from './exitCodes'
 import { createReporter } from './format'
@@ -252,7 +250,6 @@ interface UploadOptions {
   visibility?: string
   draft?: boolean
   aiLabel?: boolean
-  autoCaption?: boolean
   headed?: boolean
   dryRun?: boolean
   json?: boolean
@@ -281,16 +278,6 @@ const expandPaths = (args: string[]): string[] => {
 
   return files
 }
-
-const captionSettings = (settings: Settings): CaptionSettings => ({
-  endpoint: settings.captionEndpoint,
-  model: settings.captionModel,
-  apiKey: captionApiKey(),
-  minHashtags: 3,
-  maxHashtags: 6,
-  maxLength: MAX_DESCRIPTION_HARD,
-  timeoutMs: 60_000
-})
 
 const checkCaption = (description: string, reporter: CliReporter): void => {
   if (description.length > MAX_DESCRIPTION_HARD) {
@@ -348,14 +335,7 @@ const buildJobs = async (
 
   const jobs: Job[] = []
   for (let index = 0; index < files.length; index++) {
-    let description = sidecarTitle(files[index]) ?? ''
-    if (options.autoCaption) {
-      const generated = await autoCaption(files[index], captionSettings(settings))
-      description = generated.caption
-      if (!generated.generated) {
-        reporter.log(`Warning: caption fallback for ${files[index]}: ${generated.error}`)
-      }
-    }
+    const description = sidecarTitle(files[index]) ?? ''
     checkCaption(description, reporter)
 
     jobs.push(
@@ -446,7 +426,6 @@ sub(program, 'upload', 'Upload or schedule videos')
   .option('--draft', 'save as a draft instead of posting')
   .option('--ai-label', 'mark the video as AI-generated')
   .option('--no-ai-label', 'do not mark the video as AI-generated')
-  .option('--auto-caption', 'generate captions with the caption model')
   .option('--headed', 'show the browser window')
   .option('--dry-run', 'print the resolved plan without launching a browser')
   .option('--json', 'NDJSON output')

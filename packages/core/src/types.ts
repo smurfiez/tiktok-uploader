@@ -53,10 +53,6 @@ export interface Settings {
   browserPath: string
   /** 10 for standard web accounts, 30 for TikTok Studio */
   maxScheduleDays: number
-  captionEndpoint: string
-  captionModel: string
-  /** Encrypted by the desktop app; the CLI uses MODEL_ACCESS_KEY */
-  captionApiKeyEncrypted: string
   visibility: Visibility
   aiLabel: boolean
 }

@@ -16,9 +16,6 @@ const settings: Settings = {
   headless: true,
   browserPath: '',
   maxScheduleDays: 10,
-  captionEndpoint: 'http://127.0.0.1:9/never-called',
-  captionModel: 'test-model',
-  captionApiKeyEncrypted: '',
   visibility: 'friends',
   aiLabel: false
 }

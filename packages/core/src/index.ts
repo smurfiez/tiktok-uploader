@@ -25,12 +25,3 @@ export { BrowserNotFoundError, launchContext } from './uploader/browser'
 export type { LaunchContextOptions, LaunchedContext } from './uploader/browser'
 export { uploadVideo, UploadError, isSupportedVideo } from './uploader/upload'
 export type { UploadJob, Reporter } from './uploader/upload'
-
-export {
-  sourceTitle,
-  sidecarTitle,
-  rewriteCaption,
-  parseReply,
-  autoCaption
-} from './captions'
-export type { CaptionSettings } from './captions'

@@ -9,8 +9,7 @@ import type { TiktokApi } from './index.d'
 const api: TiktokApi = {
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
-    set: (patch: Partial<Settings> & { captionApiKey?: string }) =>
-      ipcRenderer.invoke('settings:set', patch)
+    set: (patch: Partial<Settings>) => ipcRenderer.invoke('settings:set', patch)
   },
   accounts: {
     list: () => ipcRenderer.invoke('accounts:list'),
@@ -28,9 +27,6 @@ const api: TiktokApi = {
     pick: () => ipcRenderer.invoke('videos:pick'),
     pickFolder: () => ipcRenderer.invoke('videos:pick-folder'),
     list: (directory: string) => ipcRenderer.invoke('videos:list', directory)
-  },
-  captions: {
-    suggest: (videoPath: string) => ipcRenderer.invoke('caption:suggest', videoPath)
   },
   schedule: {
     stagger: (count: number, rule: StaggerRule) =>

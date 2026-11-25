@@ -11,9 +11,6 @@ import type {
   Visibility
 } from '@tiktok-uploader/core'
 
-/** Mirrors SettingsView in the preload contract: the raw key never crosses IPC. */
-type SettingsView = Settings & { hasApiKey: boolean }
-
 /** Feed preview truncation point. Mirrors core MAX_DESCRIPTION_LENGTH. */
 const SOFT_LIMIT = 150
 /** Hard TikTok description cap. Mirrors core MAX_DESCRIPTION_HARD. */
@@ -176,16 +173,10 @@ function Flag({
 
 function JobRow({
   job,
-  captionBusy,
-  captionError,
-  onChange,
-  onGenerate
+  onChange
 }: {
   job: Job
-  captionBusy: boolean
-  captionError?: string
   onChange: (patch: Partial<Job>) => void
-  onGenerate: () => void
 }) {
   const length = job.description.length
   const counterClass = length > HARD_LIMIT ? 'counter over' : length > SOFT_LIMIT ? 'counter soft' : 'counter'
@@ -206,7 +197,7 @@ function JobRow({
           value={job.description}
           aria-label={`Caption for ${baseName(job.videoPath)}`}
           aria-describedby={`${job.id}-counter`}
-          placeholder="Write a caption or generate one"
+          placeholder="Write a caption"
           onChange={(e) => onChange({ description: e.target.value })}
         />
         <div className="caption-foot">
@@ -216,11 +207,7 @@ function JobRow({
             {length > SOFT_LIMIT && length <= HARD_LIMIT ? ' · over preview limit' : ''}
             {length > HARD_LIMIT ? ` · over hard limit ${HARD_LIMIT}` : ''}
           </span>
-          <button type="button" className="btn tiny" onClick={onGenerate} disabled={captionBusy}>
-            {captionBusy ? 'Generating…' : 'Generate'}
-          </button>
         </div>
-        {captionError ? <div className="row-error">{captionError}</div> : null}
       </td>
       <td className="col-schedule">
         <input
@@ -438,115 +425,245 @@ function ConfirmModal({
   )
 }
 
-function AddAccountModal({ onClose, onAdded }: { onClose: () => void; onAdded: (account: AccountSummary) => void }) {
-  const [id, setId] = useState('')
+function AccountManagerModal({
+  accounts,
+  currentId,
+  onClose,
+  onUse,
+  onRefresh,
+  addLog
+}: {
+  accounts: AccountSummary[]
+  currentId: string
+  onClose: () => void
+  onUse: (id: string) => void
+  onRefresh: () => Promise<void>
+  addLog: (message: string, level?: 'info' | 'error') => void
+}) {
+  const [newId, setNewId] = useState('')
+  const [newLabel, setNewLabel] = useState('')
+  const [editing, setEditing] = useState<string | null>(null)
   const [label, setLabel] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
 
-  async function submit(e: FormEvent) {
+  const rowBusy = (id: string) => busy !== null && busy.endsWith(`:${id}`)
+
+  async function run(key: string, action: () => Promise<void>) {
+    setBusy(key)
+    setError(null)
+    try {
+      await action()
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  function add(e: FormEvent) {
     e.preventDefault()
-    if (!id.trim()) {
+    const id = newId.trim()
+    if (!id) {
       setError('Account id is required')
       return
     }
-    setBusy(true)
-    setError(null)
-    try {
-      onAdded(await window.api.accounts.add({ id: id.trim(), label: label.trim() || id.trim() }))
-    } catch (e2) {
-      setError(errText(e2))
-      setBusy(false)
-    }
+    void run('add', async () => {
+      await window.api.accounts.add({ id, label: newLabel.trim() || id })
+      setNewId('')
+      setNewLabel('')
+      await onRefresh()
+      addLog(`Added account ${id}`)
+    })
+  }
+
+  function saveLabel(account: AccountSummary) {
+    void run(`label:${account.id}`, async () => {
+      await window.api.accounts.label({ id: account.id, label })
+      setEditing(null)
+      await onRefresh()
+    })
+  }
+
+  function signIn(account: AccountSummary) {
+    void run(`login:${account.id}`, async () => {
+      const result = await window.api.auth.login(account.id)
+      addLog(result.message, result.ok ? 'info' : 'error')
+      await onRefresh()
+    })
+  }
+
+  function importCookies(account: AccountSummary) {
+    void run(`import:${account.id}`, async () => {
+      const result = await window.api.auth.importCookies(account.id)
+      addLog(result.message, result.ok ? 'info' : 'error')
+      if (result.ok) await window.api.auth.status(account.id)
+      await onRefresh()
+    })
+  }
+
+  function exportCookies(account: AccountSummary) {
+    void run(`export:${account.id}`, async () => {
+      const result = await window.api.auth.exportCookies(account.id)
+      addLog(
+        result.path ? `Exported cookies to ${result.path}` : 'Cookie export cancelled or failed',
+        result.path ? 'info' : 'error'
+      )
+    })
+  }
+
+  function remove(account: AccountSummary) {
+    // removeAccount deletes the whole profile dir (cookies, sessions, queue)
+    if (!window.confirm(`Remove "${account.id}"? Its browser profile, cookies and queue are deleted.`)) return
+    void run(`remove:${account.id}`, async () => {
+      const result = await window.api.accounts.remove(account.id)
+      if (!result.ok) throw new Error(`Could not remove ${account.id}`)
+      addLog(`Removed account ${account.id}`)
+      await onRefresh()
+    })
   }
 
   return (
     <Modal
-      title="Add account"
+      title="Accounts"
       onClose={onClose}
       footer={
         <>
+          <span className="hint">Cookies are stored per account under profiles/</span>
           <span className="spacer" />
-          <button type="button" className="btn ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" form="add-account" className="btn primary" disabled={busy}>
-            {busy ? 'Adding…' : 'Add'}
+          <button type="button" className="btn" onClick={onClose}>
+            Close
           </button>
         </>
       }
     >
-      <form id="add-account" className="form-grid" onSubmit={submit}>
-        <label htmlFor="new-id">Account id</label>
+      {accounts.length === 0 ? (
+        <p className="hint">No accounts yet. Add one below, then sign in.</p>
+      ) : (
+        <ul className="accounts">
+          {accounts.map((account) => (
+            <li
+              key={account.id}
+              className={account.id === currentId ? 'account-row active' : 'account-row'}
+              aria-busy={rowBusy(account.id)}
+            >
+              <div className="account-main">
+                {editing === account.id ? (
+                  <input
+                    type="text"
+                    value={label}
+                    aria-label={`Label for ${account.id}`}
+                    placeholder={account.id}
+                    autoFocus
+                    onChange={(e) => setLabel(e.target.value)}
+                  />
+                ) : (
+                  <div className="account-title">
+                    <span className="account-label">{account.label}</span>
+                    <span className="account-id">{account.id}</span>
+                    <AccountChip account={account} />
+                    {account.id === currentId ? <span className="chip ok">Active</span> : null}
+                  </div>
+                )}
+                {rowBusy(account.id) ? <div className="hint">working…</div> : null}
+              </div>
+              <div className="account-actions">
+                {editing === account.id ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn tiny primary"
+                      onClick={() => saveLabel(account)}
+                      disabled={rowBusy(account.id)}
+                    >
+                      Save
+                    </button>
+                    <button type="button" className="btn tiny ghost" onClick={() => setEditing(null)}>
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="btn tiny"
+                      onClick={() => onUse(account.id)}
+                      disabled={account.id === currentId || rowBusy(account.id)}
+                    >
+                      Use
+                    </button>
+                    <button
+                      type="button"
+                      className="btn tiny"
+                      onClick={() => signIn(account)}
+                      disabled={account.locked || rowBusy(account.id)}
+                      title={account.locked ? 'Locked by another process' : 'Open a browser window to sign in'}
+                    >
+                      Sign in
+                    </button>
+                    <button
+                      type="button"
+                      className="btn tiny"
+                      onClick={() => importCookies(account)}
+                      disabled={account.locked || rowBusy(account.id)}
+                    >
+                      Import
+                    </button>
+                    <button
+                      type="button"
+                      className="btn tiny"
+                      onClick={() => exportCookies(account)}
+                      disabled={account.locked || rowBusy(account.id)}
+                    >
+                      Export
+                    </button>
+                    <button
+                      type="button"
+                      className="btn tiny"
+                      onClick={() => {
+                        setEditing(account.id)
+                        setLabel(account.label)
+                      }}
+                      disabled={rowBusy(account.id)}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      className="btn tiny danger"
+                      onClick={() => remove(account)}
+                      disabled={account.locked || rowBusy(account.id)}
+                      title={account.locked ? 'Locked by another process' : 'Deletes the profile, cookies and queue'}
+                    >
+                      Remove
+                    </button>
+                  </>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form className="account-add" onSubmit={add}>
         <input
-          id="new-id"
           type="text"
-          value={id}
-          placeholder="brand-main"
-          autoFocus
-          onChange={(e) => setId(e.target.value)}
+          value={newId}
+          placeholder="New account id (e.g. brand-main)"
+          aria-label="New account id"
+          onChange={(e) => setNewId(e.target.value)}
         />
-        <label htmlFor="new-label">Label</label>
-        <input id="new-label" type="text" value={label} placeholder="Brand Main" onChange={(e) => setLabel(e.target.value)} />
-      </form>
-      {error ? <div className="row-error">{error}</div> : null}
-    </Modal>
-  )
-}
-
-function EditLabelModal({
-  account,
-  onClose,
-  onSaved
-}: {
-  account: AccountSummary
-  onClose: () => void
-  onSaved: (account: AccountSummary) => void
-}) {
-  const [label, setLabel] = useState(account.label)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  async function submit(e: FormEvent) {
-    e.preventDefault()
-    setBusy(true)
-    setError(null)
-    try {
-      onSaved(await window.api.accounts.label({ id: account.id, label }))
-    } catch (e2) {
-      setError(errText(e2))
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Modal
-      title={`Edit label for ${account.id}`}
-      onClose={onClose}
-      footer={
-        <>
-          <span className="spacer" />
-          <button type="button" className="btn ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" form="edit-label" className="btn primary" disabled={busy}>
-            {busy ? 'Saving…' : 'Save'}
-          </button>
-        </>
-      }
-    >
-      <form id="edit-label" className="form-grid" onSubmit={submit}>
-        <label htmlFor="edit-label-input">Label</label>
         <input
-          id="edit-label-input"
           type="text"
-          value={label}
-          placeholder={account.id}
-          autoFocus
-          onChange={(e) => setLabel(e.target.value)}
+          value={newLabel}
+          placeholder="Label (optional)"
+          aria-label="New account label"
+          onChange={(e) => setNewLabel(e.target.value)}
         />
+        <button type="submit" className="btn" disabled={busy === 'add'}>
+          {busy === 'add' ? 'Adding…' : 'Add'}
+        </button>
       </form>
-      <p className="hint">Only the display name changes. The account id ({account.id}) stays the same.</p>
       {error ? <div className="row-error">{error}</div> : null}
     </Modal>
   )
@@ -557,17 +674,14 @@ function SettingsModal({
   onClose,
   onSaved
 }: {
-  settings: SettingsView
+  settings: Settings
   onClose: () => void
-  onSaved: (next: SettingsView) => void
+  onSaved: (next: Settings) => void
 }) {
   const [headless, setHeadless] = useState(settings.headless)
   const [browserPath, setBrowserPath] = useState(settings.browserPath)
   const [maxDays, setMaxDays] = useState(settings.maxScheduleDays)
-  const [endpoint, setEndpoint] = useState(settings.captionEndpoint)
-  const [model, setModel] = useState(settings.captionModel)
   const [visibility, setVisibility] = useState<Visibility>(settings.visibility)
-  const [apiKey, setApiKey] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -575,15 +689,12 @@ function SettingsModal({
     setBusy(true)
     setError(null)
     try {
-      const patch: Partial<Settings> & { captionApiKey?: string } = {
+      const patch: Partial<Settings> = {
         headless,
         browserPath: browserPath.trim(),
         maxScheduleDays: maxDays,
-        captionEndpoint: endpoint.trim(),
-        captionModel: model.trim(),
         visibility
       }
-      if (apiKey.trim()) patch.captionApiKey = apiKey.trim()
       onSaved(await window.api.settings.set(patch))
     } catch (e) {
       setError(errText(e))
@@ -597,7 +708,6 @@ function SettingsModal({
       onClose={onClose}
       footer={
         <>
-          <span className="hint">{settings.hasApiKey ? 'key saved' : 'no API key stored'}</span>
           <span className="spacer" />
           <button type="button" className="btn ghost" onClick={onClose}>
             Cancel
@@ -627,19 +737,6 @@ function SettingsModal({
           <option value={10}>10 days (standard)</option>
           <option value={30}>30 days (TikTok Studio)</option>
         </select>
-        <label htmlFor="set-endpoint">Caption endpoint</label>
-        <input id="set-endpoint" type="text" value={endpoint} onChange={(e) => setEndpoint(e.target.value)} />
-        <label htmlFor="set-model">Caption model</label>
-        <input id="set-model" type="text" value={model} onChange={(e) => setModel(e.target.value)} />
-        <label htmlFor="set-key">API key</label>
-        <input
-          id="set-key"
-          type="password"
-          value={apiKey}
-          placeholder={settings.hasApiKey ? 'key saved — enter a new key to replace' : 'not set'}
-          autoComplete="off"
-          onChange={(e) => setApiKey(e.target.value)}
-        />
         <label htmlFor="set-visibility">Default visibility</label>
         <select id="set-visibility" value={visibility} onChange={(e) => setVisibility(e.target.value as Visibility)}>
           {VISIBILITIES.map((v) => (
@@ -655,7 +752,7 @@ function SettingsModal({
 }
 
 export default function App() {
-  const [settings, setSettings] = useState<SettingsView | null>(null)
+  const [settings, setSettings] = useState<Settings | null>(null)
   const [accounts, setAccounts] = useState<AccountSummary[]>([])
   const [accountId, setAccountId] = useState('')
   const [jobs, setJobs] = useState<Job[]>([])
@@ -668,12 +765,9 @@ export default function App() {
   const [bulkOpen, setBulkOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [addOpen, setAddOpen] = useState(false)
-  const [labelOpen, setLabelOpen] = useState(false)
+  const [accountsOpen, setAccountsOpen] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
   const [authChecking, setAuthChecking] = useState(false)
-  const [captionBusy, setCaptionBusy] = useState<string[]>([])
-  const [captionError, setCaptionError] = useState<Record<string, string>>({})
   const logRef = useRef<HTMLDivElement>(null)
   const saveTimer = useRef<number | undefined>(undefined)
   const accountIdRef = useRef('')
@@ -940,24 +1034,6 @@ export default function App() {
     addItems(found)
   }
 
-  async function generateCaption(job: Job) {
-    setCaptionBusy((prev) => [...prev, job.id])
-    try {
-      const result = await window.api.captions.suggest(job.videoPath)
-      setCaptionError((prev) => {
-        const next = { ...prev }
-        if (result.error) next[job.id] = result.error
-        else delete next[job.id]
-        return next
-      })
-      if (result.caption) updateJob(job.id, { description: result.caption })
-    } catch (e) {
-      setCaptionError((prev) => ({ ...prev, [job.id]: errText(e) }))
-    } finally {
-      setCaptionBusy((prev) => prev.filter((id) => id !== job.id))
-    }
-  }
-
   function applyBulk(timestamps: string[]) {
     let index = 0
     commit(
@@ -1100,16 +1176,8 @@ export default function App() {
           <button type="button" className="btn" onClick={() => void signIn()} disabled={!accountId || busy}>
             Sign In
           </button>
-          <button type="button" className="btn" onClick={() => setAddOpen(true)}>
-            Add Account
-          </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => setLabelOpen(true)}
-            disabled={!currentAccount}
-          >
-            Edit Label
+          <button type="button" className="btn" onClick={() => setAccountsOpen(true)}>
+            Accounts
           </button>
         </div>
 
@@ -1183,10 +1251,7 @@ export default function App() {
                 <JobRow
                   key={job.id}
                   job={job}
-                  captionBusy={captionBusy.includes(job.id)}
-                  captionError={captionError[job.id]}
                   onChange={(patch) => updateJob(job.id, patch)}
-                  onGenerate={() => void generateCaption(job)}
                 />
               ))}
             </tbody>
@@ -1258,26 +1323,16 @@ export default function App() {
         />
       ) : null}
 
-      {addOpen ? (
-        <AddAccountModal
-          onClose={() => setAddOpen(false)}
-          onAdded={(account) => {
-            setAddOpen(false)
-            setAccountId(account.id)
-            void refreshAccounts()
-            addLog(`Added account ${account.id}`)
-          }}
-        />
-      ) : null}
-
-      {labelOpen && currentAccount ? (
-        <EditLabelModal
-          account={currentAccount}
-          onClose={() => setLabelOpen(false)}
-          onSaved={(account) => {
-            setLabelOpen(false)
-            setAccounts((prev) => prev.map((a) => (a.id === account.id ? account : a)))
-            addLog(`Renamed account label to "${account.label}"`)
+      {accountsOpen ? (
+        <AccountManagerModal
+          accounts={accounts}
+          currentId={accountId}
+          addLog={addLog}
+          onClose={() => setAccountsOpen(false)}
+          onRefresh={refreshAccounts}
+          onUse={(id) => {
+            setAccountId(id)
+            setAccountsOpen(false)
           }}
         />
       ) : null}

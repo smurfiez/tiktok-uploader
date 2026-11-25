@@ -1,4 +1,4 @@
-/** Exit codes are part of the CLI contract (PLAN.md section 8). */
+/** Exit codes are part of the CLI contract (docs/PLAN.md section 8). */
 export enum ExitCode {
   Ok = 0,
   Unexpected = 1,

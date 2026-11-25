@@ -622,6 +622,81 @@ input[type='checkbox'] {
   max-width: none;
 }
 
+/* Account manager */
+.accounts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+
+.account-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.account-row:last-child {
+  border-bottom: 0;
+}
+
+.account-row.active {
+  box-shadow: inset 2px 0 0 var(--red);
+}
+
+.account-main {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.account-main input[type='text'] {
+  width: 100%;
+}
+
+.account-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.account-label {
+  font-weight: 600;
+}
+
+.account-id {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.account-add {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.account-add input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .summary {
   display: grid;
   grid-template-columns: 130px 1fr;
