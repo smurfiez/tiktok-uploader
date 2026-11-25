@@ -161,7 +161,11 @@ export function ImportCookiesModal({ account, onClose, onImported }: ImportCooki
 
       <div className="field-label">
         <label htmlFor="cookie-text">Paste cookies</label>
-        <span className="badge">{format ?? 'Unknown format'}</span>
+        {raw.trim() ? (
+          <span className={format ? 'badge ok' : 'badge warn'}>{format ?? 'Unrecognized format'}</span>
+        ) : (
+          <span className="badge">Auto-detect</span>
+        )}
       </div>
       <textarea
         id="cookie-text"

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname } from 'node:path'
 
 import { accountsPath, assertAccountId, failuresDir, lockPath } from './paths'
-import type { Account, LockInfo } from './types'
+import type { Account, AccountPatch, LockInfo } from './types'
 
 export class LockBusyError extends Error {
   constructor(readonly info: LockInfo) {
@@ -85,6 +85,40 @@ export function setAccountLabel(id: string, label: string): Account {
   if (!account) throw new Error(`No account "${id}". Run \`tiktok-up accounts add ${id}\``)
 
   account.label = label.trim() || id
+  writeAccounts(accounts)
+  return account
+}
+
+/** Multi-field profile update: undefined leaves a field alone, null clears it. */
+export function updateAccount(id: string, patch: AccountPatch): Account {
+  const accounts = listAccounts()
+  const account = accounts.find((candidate) => candidate.id === assertAccountId(id))
+  if (!account) throw new Error(`No account "${id}". Run \`tiktok-up accounts add ${id}\``)
+
+  if (patch.label !== undefined) account.label = patch.label.trim() || account.label
+  if (patch.handle !== undefined) account.handle = patch.handle.trim() || undefined
+  if (patch.group !== undefined) {
+    const group = patch.group.trim()
+    if (group) account.group = group
+    else delete account.group
+  }
+  if (patch.color !== undefined) {
+    if (patch.color) account.color = patch.color
+    else delete account.color
+  }
+  if (patch.lastSignedIn !== undefined) account.lastSignedIn = patch.lastSignedIn
+  if (patch.lastCheckedAt !== undefined) account.lastCheckedAt = patch.lastCheckedAt
+  if (patch.sourceFolder !== undefined) {
+    const folder = patch.sourceFolder?.trim()
+    if (folder) account.sourceFolder = folder
+    else delete account.sourceFolder
+  }
+  if (patch.recursiveFolder !== undefined) {
+    if (patch.recursiveFolder === null) delete account.recursiveFolder
+    else account.recursiveFolder = patch.recursiveFolder
+  }
+  if (patch.defaults !== undefined) account.defaults = { ...account.defaults, ...patch.defaults }
+
   writeAccounts(accounts)
   return account
 }

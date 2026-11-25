@@ -4,17 +4,53 @@ export type ThemeMode = 'system' | 'light' | 'dark'
 
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
 
+export type AccountColor = 'red' | 'teal' | 'blue' | 'amber' | 'purple' | 'green'
+
+export interface AccountDefaults {
+  visibility?: Visibility
+  aiLabel?: boolean
+  maxScheduleDays?: number
+  bulkEvery?: string
+  bulkJitter?: string
+  bulkWindow?: string
+}
+
 export interface Account {
   id: string
   label: string
   handle?: string
   createdAt: string
+  group?: string
+  color?: AccountColor
+  lastSignedIn?: boolean
+  lastCheckedAt?: string
+  sourceFolder?: string
+  recursiveFolder?: boolean
+  defaults?: AccountDefaults
 }
 
 export interface AccountSummary extends Account {
   signedIn: boolean
   locked: boolean
   lockSource?: string
+  running: boolean
+  pendingCount: number
+  scheduledCount: number
+  failedCount: number
+  doneCount: number
+  nextSchedule: string | null
+}
+
+export interface AccountPatch {
+  label?: string
+  handle?: string
+  group?: string
+  color?: AccountColor | null
+  lastSignedIn?: boolean
+  lastCheckedAt?: string
+  sourceFolder?: string | null
+  recursiveFolder?: boolean | null
+  defaults?: AccountDefaults
 }
 
 export interface VideoItem {
@@ -42,11 +78,18 @@ export interface Job {
 }
 
 export type QueueEvent =
-  | { type: 'job-status'; jobId: string; status: JobStatus; error?: string; screenshot?: string }
-  | { type: 'job-stage'; jobId: string; stage: string }
-  | { type: 'log'; jobId?: string; message: string }
-  | { type: 'auth-required'; message: string }
-  | { type: 'queue-done'; done: number; failed: number; skipped: number }
+  | {
+      type: 'job-status'
+      accountId?: string
+      jobId: string
+      status: JobStatus
+      error?: string
+      screenshot?: string
+    }
+  | { type: 'job-stage'; accountId?: string; jobId: string; stage: string }
+  | { type: 'log'; accountId?: string; jobId?: string; message: string }
+  | { type: 'auth-required'; accountId?: string; message: string }
+  | { type: 'queue-done'; accountId?: string; done: number; failed: number; skipped: number }
 
 export interface Settings {
   defaultAccount: string
@@ -58,6 +101,10 @@ export interface Settings {
   visibility: Visibility
   aiLabel: boolean
   theme?: ThemeMode
+  /** Include videos inside nested subfolders when adding folders */
+  recursiveFolder?: boolean
+  /** How many account queues may run at the same time */
+  maxConcurrentAccounts?: number
 }
 
 export interface AuthStatus {
@@ -65,6 +112,33 @@ export interface AuthStatus {
   message: string
   /** The profile is in use by another run, so the session could not be checked */
   locked?: boolean
+  /** True when a failed cookie import restored the previous browser session */
+  restored?: boolean
+}
+
+export type RemoteVideoStatus = 'published' | 'scheduled' | 'draft' | 'private' | 'processing' | 'unknown'
+
+export interface TikTokVideo {
+  id: string
+  caption: string
+  /** Base64 data URI fetched in Playwright so renderer CSP stays `img-src 'self' data:` */
+  thumbnailDataUrl?: string
+  url: string
+  status: RemoteVideoStatus
+  visibility: Visibility | 'unknown'
+  createdAt?: string
+  scheduledAt?: string
+  durationSec?: number
+  views?: number
+  likes?: number
+  comments?: number
+  shares?: number
+}
+
+export interface AccountLibrary {
+  fetchedAt: string
+  handle?: string
+  items: TikTokVideo[]
 }
 
 export interface LockInfo {

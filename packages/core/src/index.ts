@@ -24,5 +24,7 @@ export {
 } from './uploader/auth'
 export { BrowserNotFoundError, launchContext } from './uploader/browser'
 export type { LaunchContextOptions, LaunchedContext } from './uploader/browser'
+export { loadLibrary, saveLibrary, parseCreatorApiPayload, syncAccountLibrary } from './uploader/library'
+export type { RawLibraryItem, SyncLibraryResult } from './uploader/library'
 export { uploadVideo, UploadError, isSupportedVideo } from './uploader/upload'
 export type { UploadJob, Reporter } from './uploader/upload'

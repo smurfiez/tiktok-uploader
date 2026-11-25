@@ -20,6 +20,7 @@ import {
   inspectAccount,
   listAccounts,
   listVideos,
+  loadLibrary,
   loadQueue,
   loadSettings,
   lockStatus,
@@ -32,10 +33,13 @@ import {
   serializeNetscape,
   sessionIdOf,
   setAccountLabel,
-  SUPPORTED_VIDEO_TYPES
+  SUPPORTED_VIDEO_TYPES,
+  syncAccountLibrary,
+  updateAccount
 } from '@tiktok-uploader/core'
 import type {
   Account,
+  AccountPatch,
   AccountSummary,
   Job,
   QueueEvent,
@@ -65,19 +69,41 @@ const slugOfLabel = (label: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'account'
 
-/** `accounts:list` must not launch a browser, so status comes from this cache. */
+/** `accounts:list` must not launch a browser: counts come from the local queue file. */
 const summarize = (account: Account): AccountSummary => {
   const lock = lockStatus(account.id)
+  const jobs = loadQueue(account.id)
+  const runnable = jobs.filter((job) => job.status === 'pending' || job.status === 'failed')
+  let nextSchedule: string | null = null
+  for (const job of runnable) {
+    if (!job.schedule) continue
+    if (nextSchedule === null || Date.parse(job.schedule) < Date.parse(nextSchedule)) {
+      nextSchedule = job.schedule
+    }
+  }
+
   return {
     ...account,
-    signedIn: signedIn.get(account.id) ?? false,
+    signedIn: signedIn.has(account.id)
+      ? Boolean(signedIn.get(account.id))
+      : Boolean(account.lastSignedIn),
     locked: lock !== null,
-    lockSource: lock?.source
+    lockSource: lock?.source,
+    running: activeRuns.has(account.id),
+    pendingCount: jobs.filter((job) => job.status === 'pending' || job.status === 'running').length,
+    scheduledCount: runnable.filter((job) => Boolean(job.schedule)).length,
+    failedCount: jobs.filter((job) => job.status === 'failed').length,
+    doneCount: jobs.filter((job) => job.status === 'done' || job.status === 'skipped').length,
+    nextSchedule
   }
 }
 
-const send = (contents: Electron.WebContents, event: QueueEvent): void => {
-  if (!contents.isDestroyed()) contents.send('queue:event', event)
+const send = (
+  contents: Electron.WebContents,
+  accountId: string,
+  event: QueueEvent
+): void => {
+  if (!contents.isDestroyed()) contents.send('queue:event', { ...event, accountId })
 }
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
@@ -116,16 +142,24 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       }
     }
 
-    const target = cookiesPath(accountId)
-    await mkdir(dirname(target), { recursive: true, mode: 0o700 })
-    await writeFile(target, serializeNetscape(cookies), { encoding: 'utf8', mode: 0o600 })
-    if (process.platform !== 'win32') chmodSync(target, 0o600)
-
+    // verify first: a rejected import must never clobber a working cookies.txt
     const status = await applyImportedCookies(accountId, cookies, {
       browserPath: loadSettings().browserPath,
       source: 'desktop'
     })
-    signedIn.set(accountId, status.signedIn)
+
+    if (status.signedIn) {
+      const target = cookiesPath(accountId)
+      await mkdir(dirname(target), { recursive: true, mode: 0o700 })
+      await writeFile(target, serializeNetscape(cookies), { encoding: 'utf8', mode: 0o600 })
+      if (process.platform !== 'win32') chmodSync(target, 0o600)
+      signedIn.set(accountId, true)
+      updateAccount(accountId, { lastSignedIn: true, lastCheckedAt: new Date().toISOString() })
+    } else if (!status.restored && !status.locked) {
+      signedIn.set(accountId, false)
+      updateAccount(accountId, { lastSignedIn: false, lastCheckedAt: new Date().toISOString() })
+    }
+
     return {
       ok: status.signedIn,
       signedIn: status.signedIn,
@@ -163,6 +197,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     summarize(setAccountLabel(input.id, input.label))
   )
 
+  ipcMain.handle('accounts:update', (_event, input: { id: string; patch: AccountPatch }) =>
+    summarize(updateAccount(input.id, input.patch))
+  )
+
   ipcMain.handle('accounts:remove', (_event, accountId: string) => {
     try {
       removeAccount(accountId)
@@ -180,6 +218,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       source: 'desktop'
     })
     signedIn.set(accountId, status.signedIn)
+    if (!status.locked) {
+      updateAccount(accountId, {
+        lastSignedIn: status.signedIn,
+        lastCheckedAt: new Date().toISOString()
+      })
+    }
     return status
   })
 
@@ -192,9 +236,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         report: () => {}
       })
       signedIn.set(accountId, true)
+      updateAccount(accountId, { lastSignedIn: true, lastCheckedAt: new Date().toISOString() })
       return { ok: true, message: 'Signed in' }
     } catch (error) {
       signedIn.set(accountId, false)
+      updateAccount(accountId, { lastSignedIn: false, lastCheckedAt: new Date().toISOString() })
       return { ok: false, message: errorMessage(error) }
     }
   })
@@ -261,7 +307,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return picked.canceled ? null : (picked.filePaths[0] ?? null)
   })
 
-  ipcMain.handle('videos:list', (_event, directory: string) => listVideos(directory))
+  ipcMain.handle(
+    'videos:list',
+    (_event, directory: string, options?: { recursive?: boolean }) =>
+      listVideos(directory, options)
+  )
 
   ipcMain.handle('schedule:stagger', (_event, input: { count: number; rule: StaggerRule }) => {
     const now = new Date()
@@ -282,60 +332,115 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     }
   })
 
+  /**
+   * Shared run start: persist first, then run headless in the background and
+   * clean up on settling. `queue:start` and `queue:start-all` both use it.
+   */
+  function startRun(
+    contents: Electron.WebContents,
+    accountId: string,
+    jobs: Job[],
+    headed?: boolean
+  ): { started: boolean; error?: string } {
+    if (activeRuns.has(accountId)) {
+      return { started: false, error: `A run is already active for "${accountLabel(accountId)}"` }
+    }
+
+    const lock = lockStatus(accountId)
+    if (lock) {
+      const text = `Account "${accountLabel(accountId)}" is locked by ${lock.source} (pid ${lock.pid})`
+      send(contents, accountId, { type: 'log', message: text })
+      return { started: false, error: text }
+    }
+
+    // persist first so every transition runQueue makes lands on disk
+    try {
+      saveQueue(accountId, jobs)
+    } catch (error) {
+      return { started: false, error: `Could not save the queue: ${errorMessage(error)}` }
+    }
+
+    const settings = loadSettings()
+    let shouldStop = false
+    const blocker = powerSaveBlocker.start('prevent-app-suspension')
+    activeRuns.set(accountId, {
+      stop: () => {
+        shouldStop = true
+      },
+      blocker
+    })
+
+    void runQueue({
+      accountId,
+      jobs,
+      headed,
+      browserPath: settings.browserPath,
+      maxScheduleDays: settings.maxScheduleDays,
+      shouldStop: () => shouldStop,
+      onEvent: (queueEvent) => send(contents, accountId, queueEvent)
+    })
+      .then((result) => {
+        if (result.lockBusy) {
+          send(contents, accountId, {
+            type: 'log',
+            message: `Account "${accountLabel(accountId)}" is locked by another process`
+          })
+        }
+      })
+      .catch((error) => {
+        send(contents, accountId, { type: 'log', message: `Queue failed: ${errorMessage(error)}` })
+      })
+      .finally(() => {
+        activeRuns.delete(accountId)
+        if (powerSaveBlocker.isStarted(blocker)) powerSaveBlocker.stop(blocker)
+      })
+
+    return { started: true }
+  }
+
+  const isRunnable = (job: Job): boolean => job.status === 'pending' || job.status === 'failed'
+
+  ipcMain.handle('queue:append', (_event, input: { accountId: string; jobs: Job[] }) => {
+    const existing = loadQueue(input.accountId)
+    const known = new Set(existing.map((job) => job.videoPath))
+    const added = input.jobs.filter((job) => {
+      if (known.has(job.videoPath)) return false
+      known.add(job.videoPath)
+      return true
+    })
+    if (added.length > 0) saveQueue(input.accountId, [...existing, ...added])
+    return { added: added.length, total: existing.length + added.length }
+  })
+
   ipcMain.handle(
     'queue:start',
-    (event, input: { accountId: string; jobs: Job[]; headed?: boolean }) => {
-      const { accountId, jobs, headed } = input
+    (event, input: { accountId: string; jobs: Job[]; headed?: boolean }) =>
+      startRun(event.sender, input.accountId, input.jobs, input.headed)
+  )
 
-      if (activeRuns.has(accountId)) {
-        return { started: false, error: `A run is already active for "${accountLabel(accountId)}"` }
+  ipcMain.handle(
+    'queue:start-all',
+    (event, input: { accountIds: string[]; headed?: boolean }) => {
+      const cap = loadSettings().maxConcurrentAccounts ?? 2
+      const started: string[] = []
+      const skipped: string[] = []
+
+      for (const accountId of input.accountIds) {
+        const jobs = loadQueue(accountId)
+        if (
+          activeRuns.has(accountId) ||
+          lockStatus(accountId) !== null ||
+          !jobs.some(isRunnable) ||
+          activeRuns.size >= cap
+        ) {
+          skipped.push(accountId)
+          continue
+        }
+        if (startRun(event.sender, accountId, jobs, input.headed).started) started.push(accountId)
+        else skipped.push(accountId)
       }
 
-      const lock = lockStatus(accountId)
-      if (lock) {
-        const text = `Account "${accountLabel(accountId)}" is locked by ${lock.source} (pid ${lock.pid})`
-        send(event.sender, { type: 'log', message: text })
-        return { started: false, error: text }
-      }
-
-      // persist first so every transition runQueue makes lands on disk
-      try {
-        saveQueue(accountId, jobs)
-      } catch (error) {
-        return { started: false, error: `Could not save the queue: ${errorMessage(error)}` }
-      }
-
-      const settings = loadSettings()
-      let shouldStop = false
-      const blocker = powerSaveBlocker.start('prevent-app-suspension')
-      activeRuns.set(accountId, { stop: () => { shouldStop = true }, blocker })
-
-      void runQueue({
-        accountId,
-        jobs,
-        headed,
-        browserPath: settings.browserPath,
-        maxScheduleDays: settings.maxScheduleDays,
-        shouldStop: () => shouldStop,
-        onEvent: (queueEvent) => send(event.sender, queueEvent)
-      })
-        .then((result) => {
-          if (result.lockBusy) {
-            send(event.sender, {
-              type: 'log',
-              message: `Account "${accountLabel(accountId)}" is locked by another process`
-            })
-          }
-        })
-        .catch((error) => {
-          send(event.sender, { type: 'log', message: `Queue failed: ${errorMessage(error)}` })
-        })
-        .finally(() => {
-          activeRuns.delete(accountId)
-          if (powerSaveBlocker.isStarted(blocker)) powerSaveBlocker.stop(blocker)
-        })
-
-      return { started: true }
+      return { started, skipped }
     }
   )
 
@@ -343,6 +448,35 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const run = activeRuns.get(accountId)
     run?.stop()
     return { stopped: Boolean(run) }
+  })
+
+  ipcMain.handle('library:load', (_event, accountId: string) => loadLibrary(accountId))
+
+  ipcMain.handle('library:sync', async (_event, accountId: string) => {
+    const result = await syncAccountLibrary(accountId, {
+      browserPath: loadSettings().browserPath,
+      source: 'desktop'
+    })
+    if (!result.ok && !result.locked && /login|expired|signed in/i.test(result.message)) {
+      signedIn.set(accountId, false)
+    }
+    return result
+  })
+
+  ipcMain.handle('shell:open-external', async (_event, rawUrl: string) => {
+    try {
+      const parsed = new URL(rawUrl)
+      if (
+        parsed.protocol === 'https:' &&
+        (parsed.hostname === 'tiktok.com' || parsed.hostname.endsWith('.tiktok.com'))
+      ) {
+        await shell.openExternal(parsed.toString())
+        return { ok: true }
+      }
+      return { ok: false }
+    } catch {
+      return { ok: false }
+    }
   })
 
   ipcMain.handle('shell:reveal', (_event, path: string) => {

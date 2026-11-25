@@ -1,10 +1,13 @@
 import type {
+  AccountLibrary,
+  AccountPatch,
   AccountSummary,
   AuthStatus,
   Job,
   QueueEvent,
   Settings,
   StaggerRule,
+  SyncLibraryResult,
   VideoItem
 } from '@tiktok-uploader/core'
 
@@ -25,6 +28,7 @@ export interface TiktokApi {
     list(): Promise<AccountSummary[]>
     add(input: { id?: string; label: string }): Promise<AccountSummary>
     label(input: { id: string; label: string }): Promise<AccountSummary>
+    update(input: { id: string; patch: AccountPatch }): Promise<AccountSummary>
     remove(accountId: string): Promise<{ ok: boolean }>
   }
   auth: {
@@ -37,7 +41,7 @@ export interface TiktokApi {
   videos: {
     pick(): Promise<string[]>
     pickFolder(): Promise<string | null>
-    list(directory: string): Promise<VideoItem[]>
+    list(directory: string, options?: { recursive?: boolean }): Promise<VideoItem[]>
   }
   schedule: {
     stagger(count: number, rule: StaggerRule): Promise<string[]>
@@ -45,8 +49,14 @@ export interface TiktokApi {
   queue: {
     load(accountId: string): Promise<Job[]>
     save(accountId: string, jobs: Job[]): Promise<{ ok: boolean }>
+    append(input: { accountId: string; jobs: Job[] }): Promise<{ added: number; total: number }>
     start(input: { accountId: string; jobs: Job[]; headed?: boolean }): Promise<{ started: boolean; error?: string }>
+    startAll(input: { accountIds: string[]; headed?: boolean }): Promise<{ started: string[]; skipped: string[] }>
     stop(accountId: string): Promise<{ stopped: boolean }>
+  }
+  library: {
+    load(accountId: string): Promise<AccountLibrary | null>
+    sync(accountId: string): Promise<SyncLibraryResult>
   }
   events: {
     onQueue(callback: (event: QueueEvent) => void): () => void
@@ -56,6 +66,7 @@ export interface TiktokApi {
     getPathForFile(file: File): string
   }
   reveal(path: string): Promise<void>
+  openExternal(url: string): Promise<{ ok: boolean }>
 }
 
 declare global {

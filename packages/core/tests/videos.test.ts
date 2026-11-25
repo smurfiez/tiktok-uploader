@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -78,6 +78,59 @@ describe('listVideos', () => {
 
   it('returns an empty list for a directory without videos', () => {
     expect(listVideos(tempDir())).toEqual([])
+  })
+
+  it('ignores nested videos unless recursion is requested', () => {
+    const dir = tempDir()
+    const nested = join(dir, 'clips')
+    mkdirSync(nested)
+    writeFileSync(join(dir, 'top.mp4'), 'x')
+    writeFileSync(join(nested, 'deep.mp4'), 'y')
+
+    expect(listVideos(dir).map((video) => video.path)).toEqual([join(dir, 'top.mp4')])
+    expect(listVideos(dir, { recursive: false }).map((video) => video.path)).toEqual([
+      join(dir, 'top.mp4')
+    ])
+  })
+
+  it('finds nested videos when recursive', () => {
+    const dir = tempDir()
+    const nested = join(dir, 'clips', 'raw')
+    mkdirSync(nested, { recursive: true })
+    writeFileSync(join(dir, 'top.mp4'), 'x')
+    writeFileSync(join(dir, 'clips', 'mid.mov'), 'y')
+    writeFileSync(join(nested, 'deep.webm'), 'z')
+
+    expect(listVideos(dir, { recursive: true }).map((video) => video.title)).toEqual([
+      'mid',
+      'deep',
+      'top'
+    ])
+  })
+
+  it('skips hidden files and hidden directories at any depth', () => {
+    const dir = tempDir()
+    mkdirSync(join(dir, '.git', 'objects'), { recursive: true })
+    mkdirSync(join(dir, 'visible'))
+    writeFileSync(join(dir, '.hidden.mp4'), 'x')
+    writeFileSync(join(dir, '.git', 'objects', 'blob.mp4'), 'y')
+    writeFileSync(join(dir, 'visible', '.hidden-inner.mp4'), 'z')
+    writeFileSync(join(dir, 'visible', 'kept.mp4'), 'w')
+
+    expect(listVideos(dir, { recursive: true }).map((video) => video.path)).toEqual([
+      join(dir, 'visible', 'kept.mp4')
+    ])
+  })
+
+  it('skips zero-byte videos in subfolders', () => {
+    const dir = tempDir()
+    mkdirSync(join(dir, 'nested'))
+    writeFileSync(join(dir, 'nested', 'empty.mp4'), '')
+    writeFileSync(join(dir, 'nested', 'real.mp4'), 'x')
+
+    expect(listVideos(dir, { recursive: true }).map((video) => video.path)).toEqual([
+      join(dir, 'nested', 'real.mp4')
+    ])
   })
 })
 

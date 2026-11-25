@@ -92,7 +92,8 @@ export interface RunQueueResult {
 export async function runQueue(options: RunQueueOptions): Promise<RunQueueResult> {
   const settings = loadSettings()
   const persist = options.persist !== false
-  const emit = (event: QueueEvent): void => options.onEvent?.(event)
+  const emit = (event: QueueEvent): void =>
+    options.onEvent?.({ ...event, accountId: event.accountId ?? options.accountId })
   const report = (message: string, jobId?: string): void => emit({ type: 'log', message, jobId })
 
   const result: RunQueueResult = {

@@ -254,9 +254,10 @@ interface UploadOptions {
   dryRun?: boolean
   json?: boolean
   maxScheduleDays?: number
+  recursive?: boolean
 }
 
-const expandPaths = (args: string[]): string[] => {
+const expandPaths = (args: string[], recursive = false): string[] => {
   const files: string[] = []
 
   for (const arg of args) {
@@ -264,7 +265,7 @@ const expandPaths = (args: string[]): string[] => {
     if (!existsSync(path)) throw new UsageError(`No such file or directory: ${arg}`)
 
     if (statSync(path).isDirectory()) {
-      const videos = listVideos(path)
+      const videos = listVideos(path, { recursive })
       if (videos.length === 0) throw new UsageError(`No supported videos in ${arg}`)
       files.push(...videos.map((video) => video.path))
       continue
@@ -430,11 +431,12 @@ sub(program, 'upload', 'Upload or schedule videos')
   .option('--dry-run', 'print the resolved plan without launching a browser')
   .option('--json', 'NDJSON output')
   .option('--max-schedule-days <days>', 'maximum scheduling horizon', Number)
+  .option('-r, --recursive', 'include videos in subfolders')
   .action(
     guard(async (paths: string[], options: UploadOptions) => {
       const accountId = resolveAccount(options.account)
       const reporter = reporterFor(options)
-      const files = expandPaths(paths)
+      const files = expandPaths(paths, Boolean(options.recursive))
       const { jobs, settings } = await buildJobs(files, options, reporter)
 
       if (options.dryRun) {

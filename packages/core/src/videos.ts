@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 
 import type { VideoItem } from './types'
@@ -21,17 +21,82 @@ export function sidecarTitle(videoPath: string): string | null {
   }
 }
 
-/** Supported videos directly inside `directory`, oldest name first. */
-export function listVideos(directory: string): VideoItem[] {
-  return readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && !entry.name.startsWith('.') && isSupportedVideo(entry.name))
-    .map((entry) => {
-      const path = join(directory, entry.name)
-      const stats = statSync(path)
-      return { path, title: filenameTitle(path), size: stats.size, mtimeMs: stats.mtimeMs }
-    })
-    .filter((item) => item.size > 0)
-    .sort((a, b) => a.path.localeCompare(b.path))
+export interface ListVideosOptions {
+  recursive?: boolean
+}
+
+/** Supported videos inside `directory` (direct children by default; set `recursive: true` for subfolders). */
+export function listVideos(directory: string, options: ListVideosOptions = {}): VideoItem[] {
+  const recursive = Boolean(options.recursive)
+  const items: VideoItem[] = []
+  const visited = new Set<string>()
+
+  const walk = (dir: string): void => {
+    let real: string
+    try {
+      real = realpathSync(dir)
+    } catch {
+      return
+    }
+    if (visited.has(real)) return
+    visited.add(real)
+
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      const fullPath = join(dir, entry.name)
+
+      if (entry.isDirectory()) {
+        if (recursive) walk(fullPath)
+        continue
+      }
+
+      if (entry.isSymbolicLink()) {
+        try {
+          const stats = statSync(fullPath)
+          if (stats.isDirectory()) {
+            if (recursive) walk(fullPath)
+            continue
+          }
+          if (stats.isFile() && isSupportedVideo(entry.name) && stats.size > 0) {
+            items.push({
+              path: fullPath,
+              title: filenameTitle(fullPath),
+              size: stats.size,
+              mtimeMs: stats.mtimeMs
+            })
+          }
+        } catch {
+          // broken symlink or unreadable target
+        }
+        continue
+      }
+
+      if (!entry.isFile() || !isSupportedVideo(entry.name)) continue
+      try {
+        const stats = statSync(fullPath)
+        if (stats.size > 0) {
+          items.push({
+            path: fullPath,
+            title: filenameTitle(fullPath),
+            size: stats.size,
+            mtimeMs: stats.mtimeMs
+          })
+        }
+      } catch {
+        // skip unreadable file
+      }
+    }
+  }
+
+  walk(directory)
+  return items.sort((a, b) => a.path.localeCompare(b.path))
 }
 
 export { isSupportedVideo, RENDER_PREFIX }

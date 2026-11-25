@@ -16,7 +16,8 @@ import {
   readLock,
   releaseLock,
   removeAccount,
-  setAccountLabel
+  setAccountLabel,
+  updateAccount
 } from '../src/profiles'
 
 let home: string
@@ -73,6 +74,93 @@ describe('accounts', () => {
     acquireLock('main', 'test')
     removeAccount('main')
     expect(readLock('main')).toBeNull()
+  })
+})
+
+describe('updateAccount', () => {
+  it('trims the label and falls back to the existing one', () => {
+    addAccount('main', 'Brand Main')
+
+    expect(updateAccount('main', { label: '  Renamed  ' }).label).toBe('Renamed')
+    expect(updateAccount('main', { label: '   ' }).label).toBe('Renamed')
+    expect(getAccount('main').label).toBe('Renamed')
+  })
+
+  it('stores a trimmed group and deletes it when empty', () => {
+    addAccount('main')
+
+    expect(updateAccount('main', { group: '  Clients ' }).group).toBe('Clients')
+    expect(getAccount('main').group).toBe('Clients')
+
+    expect(updateAccount('main', { group: '' }).group).toBeUndefined()
+    expect(getAccount('main').group).toBeUndefined()
+  })
+
+  it('sets a color and deletes it on null', () => {
+    addAccount('main')
+
+    expect(updateAccount('main', { color: 'teal' }).color).toBe('teal')
+    expect(getAccount('main').color).toBe('teal')
+
+    expect(updateAccount('main', { color: null }).color).toBeUndefined()
+    expect(getAccount('main').color).toBeUndefined()
+  })
+
+  it('sets a trimmed source folder and deletes it on null or empty', () => {
+    addAccount('main')
+
+    expect(updateAccount('main', { sourceFolder: ' /tmp/clips ' }).sourceFolder).toBe('/tmp/clips')
+    expect(getAccount('main').sourceFolder).toBe('/tmp/clips')
+
+    expect(updateAccount('main', { sourceFolder: null }).sourceFolder).toBeUndefined()
+    expect(updateAccount('main', { sourceFolder: '  ' }).sourceFolder).toBeUndefined()
+    expect(getAccount('main').sourceFolder).toBeUndefined()
+  })
+
+  it('sets and clears the recursive folder override', () => {
+    addAccount('main')
+
+    expect(updateAccount('main', { recursiveFolder: true }).recursiveFolder).toBe(true)
+    expect(getAccount('main').recursiveFolder).toBe(true)
+
+    expect(updateAccount('main', { recursiveFolder: null }).recursiveFolder).toBeUndefined()
+    expect(getAccount('main').recursiveFolder).toBeUndefined()
+  })
+
+  it('persists auth metadata and merges defaults', () => {
+    addAccount('main')
+
+    updateAccount('main', {
+      lastSignedIn: true,
+      lastCheckedAt: '2026-01-01T00:00:00.000Z',
+      defaults: { visibility: 'friends', aiLabel: false }
+    })
+    const account = updateAccount('main', { defaults: { bulkEvery: '12h' } })
+
+    expect(account).toMatchObject({
+      lastSignedIn: true,
+      lastCheckedAt: '2026-01-01T00:00:00.000Z',
+      defaults: { visibility: 'friends', aiLabel: false, bulkEvery: '12h' }
+    })
+    expect(getAccount('main')).toMatchObject({
+      lastSignedIn: true,
+      defaults: { visibility: 'friends', aiLabel: false, bulkEvery: '12h' }
+    })
+  })
+
+  it('leaves untouched fields alone', () => {
+    addAccount('main', 'Brand Main')
+    updateAccount('main', { group: 'Clients', color: 'blue' })
+
+    expect(updateAccount('main', { label: 'Renamed' })).toMatchObject({
+      label: 'Renamed',
+      group: 'Clients',
+      color: 'blue'
+    })
+  })
+
+  it('throws for an unknown account', () => {
+    expect(() => updateAccount('missing', { label: 'x' })).toThrow(/No account "missing"/)
   })
 })
 

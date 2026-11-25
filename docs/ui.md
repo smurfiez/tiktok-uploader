@@ -1,821 +1,851 @@
-# Comprehensive Implementation Plan: Studio-Grade Desktop UI, Light Mode, Chrome Cookie Import & Label-Only Accounts
+# Comprehensive Handoff Specification: Review Fixes, Recursive Uploads, Queue/Completed Split, TikTok Library & Multi-Account Management
 
-> **Handoff Note**: This specification is designed to be followed step-by-step by any developer or AI assistant. Every file path, architecture choice, visual rule, TypeScript signature, CSS token, and anti-pattern is spelled out explicitly. **Do not improvise raw browser controls or shortcut the styling** — the visual polish rules in Section 3 are essential to making this app look like a commercial macOS/Windows desktop product (e.g. Linear / Raycast / Buffer) rather than a homegrown utility.
-
----
-
-## 0. Hard Rules & Anti-Patterns (Read Before Writing Any Code)
-
-### Repository Invariants (`AGENTS.md`)
-- **Code style**: TypeScript, **no semicolons**, **single quotes**, **2-space indentation**.
-- **Zero Electron in Core**: `packages/core` must NEVER import `electron`.
-- **Single Core Entrypoint**: Desktop and CLI must ONLY import from `'@tiktok-uploader/core'` (never deep imports).
-- **Sandboxed Renderer**: `packages/desktop/src/renderer/**` must NEVER import Node `fs`/`path` or `electron`. All side effects go through `window.api`.
-- **IPC Sync**: Every IPC change must update all three files together:
-  1. `packages/desktop/src/main/ipc.ts`
-  2. `packages/desktop/src/preload/index.ts`
-  3. `packages/desktop/src/preload/index.d.ts`
-- **No Cached Env Paths**: Do not cache `dataDir()` or `TIKTOK_UPLOADER_HOME` at module load.
-- **Keep CLI & Tests Green**: Never break `addAccount(id, label)` or existing CLI commands.
-
-### Visual Polish Anti-Patterns — **DO NOT DO THESE**
-1. **NO `window.confirm()` or `window.alert()`**: Replace every native browser dialog (such as deleting an account) with a styled in-app confirmation modal.
-2. **NO raw Unicode symbols (`✕`, `▾`, `▸`) as icons**: Use crisp, uniform-stroke (`1.75px`) inline SVG icons from `components/Icons.tsx` everywhere.
-3. **NO raw HTML checkboxes for settings or video options**:
-   - Use a styled **Toggle Switch** component (`components/ToggleSwitch.tsx`) for boolean toggles (`Show browser`, `Run headless`, `Default AI label`).
-   - Use **Interactive Toggle Pills** (`button` with `aria-pressed`) for per-video options (`Draft`, `AI`, `Comments`, `Duet`, `Stitch`).
-4. **NO exposed internal IDs**: Never render `account.id` or `job.id` anywhere in the UI, dropdowns, modals, delete confirmations, or log lines. Users ONLY ever see `account.label` and video filenames.
-5. **NO hardcoded dark hex colors in component CSS**: Every background, text, border, badge, and hover color MUST use CSS custom properties defined in both `[data-theme='dark']` and `[data-theme='light']`.
-6. **NO unstyled OS scrollbars or unstyled `<select>` arrows**: Style custom thin scrollbars and custom chevron indicators on selects.
-7. **NO silent actions**: Show subtle auto-dismissing **Toast notifications** for user actions (imported cookies, saved settings, added videos, copied log, added/removed account).
+> **Handoff Note**: This is a complete, self-contained engineering specification written so any developer or AI assistant can implement every phase cleanly with zero guesswork. Follow every file path, TypeScript type, IPC signature, CSS rule, edge case, and verification step strictly.
+>
+> **Baseline**: Commit `eb8673b` implemented the two-pane desktop shell, Light/Dark/System themes, Chrome cookie import, and label-only accounts. All 111 Vitest tests, `npm run typecheck`, `npm run build:cli`, and `npm run build -w @tiktok-uploader/desktop` currently pass.
 
 ---
 
-## 1. Visual Architecture & Layout Blueprint
+## 0. Hard Invariants & Rules (Read First)
 
-Move from the cramped single-row toolbar into a **two-pane desktop app layout**: a clean **Left Sidebar (`236px`)** for Accounts, Theme & Settings, and a spacious **Main Workspace** for the Upload Queue and Activity Log.
-
-```text
-┌───────────────────────┬──────────────────────────────────────────────────────────────────────┐
-│ ● TikTok Uploader     │  Brand Main   [● Signed in]        [Show browser (o)]  [ ▶ Run (4) ] │
-├───────────────────────┼──────────────────────────────────────────────────────────────────────┤
-│ ACCOUNTS          [+] │  [+ Add Videos] [Add Folder] [Bulk Schedule]  4 queued · 3 scheduled │
-│                       ├──────────────────────────────────────────────────────────────────────┤
-│ ▌● Brand Main    ···  │  VIDEO             CAPTION                SCHEDULE       OPTIONS     │
-│  ● Personal Clip      │  ┌──┐                                                                │
-│  ○ New Creator        │  │▶ │ clip_01.mp4  Check out our new...   Tomorrow 6 PM  [Everyone▾] │
-│                       │  └──┘ MP4          48 / 150               [date input✕]  [Draft][AI] │
-│                       │                                                          [Cmt][Duet] │
-│                       │                                           ● Pending      [Stitch] 🗑 │
-│                       ├──────────────────────────────────────────────────────────────────────┤
-│ ───────────────────── │  ...                                                                 │
-│ Selected Account:     │                                                                      │
-│ [ Sign In ]           │                                                                      │
-│ [ Chrome Cookies ]    │                                                                      │
-│                       │                                                                      │
-│ ───────────────────── ├──────────────────────────────────────────────────────────────────────┤
-│ [☀ Light | ☾ Dark|Auto]│  ▸ Activity Log · Idle · 2 events                  [Clear] [Copy]   │
-│ [⚙ Settings]          │  (expands up to 220px; collapsed by default until opened or error)   │
-└───────────────────────┴──────────────────────────────────────────────────────────────────────┘
-```
-
-### Why This Layout Feels Commercial & Polished
-- **Zero toolbar crowding**: Account switching is 1 click in the sidebar instead of a cramped `<select>` + separate `Accounts` modal.
-- **Immediate Chrome Cookie access**: When an account is not signed in, an inline subtle callout strip appears inside the workspace header (and in the sidebar card) offering one-click **Sign In with Browser** or **Import from Chrome** (which opens the guided instructions modal).
-- **1-click Light Mode**: A sleek 3-segment theme pill (`Light` / `Dark` / `System`) sits cleanly in the sidebar footer, syncing with macOS/Windows `nativeTheme` and persisting to `settings.json`.
-- **Works cleanly at `940×640` and up**: Sidebar is `236px` fixed (`flex-shrink: 0`), workspace takes `1fr` (`min-width: 0`), table scrolls cleanly without clipping any button.
+1. **Code Style (`AGENTS.md`)**: TypeScript, **no semicolons**, **single quotes**, **2-space indentation**.
+2. **Zero Electron in Core**: `packages/core` must NEVER import `electron`.
+3. **Single Core Entrypoint**: Desktop and CLI must ONLY import from `'@tiktok-uploader/core'` (exported via `packages/core/src/index.ts`). No deep imports.
+4. **Optional Fields on `Settings` & `Account`**: Any new fields added to `Settings` or `Account` MUST be optional (`?`) on the TypeScript interface (while populated in `DEFAULT_SETTINGS` where applicable) so existing tests (like `packages/core/tests/queue.test.ts` constructing raw `Settings` literals) and existing `settings.json` / `accounts.json` files stay 100% compatible.
+5. **Single Selector File**: Every TikTok URL and Playwright selector MUST live in `packages/core/src/selectors.ts`.
+6. **Strict CSP Preserved**: Keep `img-src 'self' data:` in `index.html` and `main/index.ts`. Never weaken CSP for external TikTok CDN thumbnails — fetch thumbnails in Node/Playwright and store them as `data:image/...;base64,...` data URIs.
+7. **IPC Sync**: Every IPC change updates ALL THREE files together:
+   - `packages/desktop/src/main/ipc.ts`
+   - `packages/desktop/src/preload/index.ts`
+   - `packages/desktop/src/preload/index.d.ts`
+8. **UI Polish Rules**:
+   - NEVER use `window.confirm()` or `window.alert()`.
+   - NEVER display raw `account.id` or `job.id` anywhere in the UI, dialogs, or activity log.
+   - NEVER hardcode dark hex colors in component CSS — use CSS custom properties from both `[data-theme='dark']` and `[data-theme='light']`.
+   - Use crisp `1.75px`-stroke SVG icons from `components/Icons.tsx` (never raw Unicode symbols like `✕`, `▾`, `▸`).
+   - Use `ToggleSwitch` for boolean settings and `.option-pill` buttons (`aria-pressed`) for video/toolbar toggles.
 
 ---
 
-## 2. Phase 1 — Core Package (`packages/core`)
+## 1. Part A — Review Follow-Up Fixes (Fix Existing Bugs & Polish First)
 
-### 2.1 Theme Setting (`packages/core/src/types.ts` & `packages/core/src/settings.ts`)
-1. In `packages/core/src/types.ts`:
-   - Add `export type ThemeMode = 'system' | 'light' | 'dark'`
-   - Add `theme?: ThemeMode` to `export interface Settings` (keep optional on the type so any raw `Settings` test objects don't break, while `DEFAULT_SETTINGS` sets `theme: 'system'`).
-2. In `packages/core/src/settings.ts`:
-   - Update `DEFAULT_SETTINGS`:
+### A.1 Fix Failed Cookie Import Clobbering `cookies.txt` & `signedIn` Cache
+- **Files**: `packages/core/src/types.ts`, `packages/core/src/uploader/auth.ts`, `packages/desktop/src/main/ipc.ts`
+- **Bug**: `applyImportedCookies()` restores previous browser cookies when verification fails, but `saveAndVerifyCookies()` in `ipc.ts` writes `cookies.txt` *before* verifying and unconditionally sets `signedIn.set(accountId, status.signedIn)`.
+- **Exact Fix**:
+  1. In `packages/core/src/types.ts`, add `restored?: boolean` to `AuthStatus`:
      ```ts
-     export const DEFAULT_SETTINGS: Settings = {
-       defaultAccount: 'main',
-       headless: true,
-       browserPath: '',
-       maxScheduleDays: 10,
-       visibility: 'everyone',
-       aiLabel: true,
-       theme: 'system'
+     export interface AuthStatus {
+       signedIn: boolean
+       message: string
+       /** The profile is in use by another run, so the session could not be checked */
+       locked?: boolean
+       /** True when a failed cookie import restored the previous browser session */
+       restored?: boolean
      }
      ```
-
-### 2.2 Auto-Generated Internal Account IDs (`packages/core/src/profiles.ts`)
-Keep `addAccount(id: string, label?: string): Account` untouched for CLI and test compatibility. Add below it:
-
-```ts
-/**
- * Builds a filesystem-safe, unique internal account id from a display label.
- * Always satisfies assertAccountId (/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/).
- */
-export function generateAccountId(label: string, existingIds: Iterable<string>): string {
-  const taken = new Set(existingIds)
-  const slug = label
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
-
-  const base = slug && /^[a-z0-9]/.test(slug) ? slug : 'account'
-  if (!taken.has(base)) return base
-
-  for (let i = 2; i < 10_000; i++) {
-    const candidate = `${base}-${i}`
-    if (!taken.has(candidate)) return candidate
-  }
-  return `${base}-${Date.now().toString(36)}`
-}
-
-/** Creates a new account from a user-facing label, auto-generating its internal id. */
-export function createAccount(label: string): Account {
-  const clean = label.trim()
-  if (!clean) throw new Error('Account name is required')
-  const existing = listAccounts().map((account) => account.id)
-  const id = generateAccountId(clean, existing)
-  return addAccount(id, clean)
-}
-```
-*(Automatically exported via `export * from './profiles'` in `packages/core/src/index.ts`.)*
-
-### 2.3 Chrome Cookie Parsing (`packages/core/src/cookies.ts`)
-Keep all existing exports untouched. Add these helpers and exported functions at the bottom of `packages/core/src/cookies.ts`:
-
-```ts
-function normalizeSameSite(value: unknown): StoredCookie['sameSite'] | undefined {
-  if (typeof value !== 'string') return undefined
-  switch (value.trim().toLowerCase()) {
-    case 'strict':
-      return 'Strict'
-    case 'lax':
-      return 'Lax'
-    case 'none':
-    case 'no_restriction':
-      return 'None'
-    default:
-      return undefined
-  }
-}
-
-function isTikTokDomain(domain: string | undefined): boolean {
-  if (!domain) return false
-  const clean = domain.trim().toLowerCase().replace(/^\./, '')
-  return clean === 'tiktok.com' || clean.endsWith('.tiktok.com')
-}
-
-/**
- * Parses JSON cookie arrays exported by Chrome extensions (Cookie-Editor,
- * EditThisCookie, Chrome DevTools / Playwright). Filters to tiktok.com if mixed.
- */
-export function parseJsonCookies(text: string): StoredCookie[] {
-  let raw: unknown
-  try {
-    raw = JSON.parse(text)
-  } catch {
-    return []
-  }
-  if (!Array.isArray(raw)) return []
-
-  const parsed: StoredCookie[] = []
-  for (const entry of raw) {
-    if (!entry || typeof entry !== 'object') continue
-    const item = entry as Record<string, unknown>
-    const name = typeof item.name === 'string' ? item.name.trim() : ''
-    if (!name) continue
-
-    const value = typeof item.value === 'string' ? item.value : String(item.value ?? '')
-    const domain =
-      typeof item.domain === 'string' && item.domain.trim() ? item.domain.trim() : '.tiktok.com'
-    const path =
-      typeof item.path === 'string' && item.path.trim() ? item.path.trim() : '/'
-
-    const cookie: StoredCookie = { name, value, domain, path }
-    const rawExpiry = item.expires ?? item.expirationDate
-    const expiry = Number(rawExpiry)
-    if (Number.isFinite(expiry) && expiry > 0) cookie.expires = Math.floor(expiry)
-    if (item.httpOnly) cookie.httpOnly = true
-    if (item.secure) cookie.secure = true
-    const sameSite = normalizeSameSite(item.sameSite)
-    if (sameSite) cookie.sameSite = sameSite
-
-    parsed.push(cookie)
-  }
-
-  const tiktokOnly = parsed.filter((cookie) => isTikTokDomain(cookie.domain))
-  return tiktokOnly.length > 0 ? tiktokOnly : parsed
-}
-
-/**
- * Parses a raw `Cookie:` request header or `name=value; ...` string copied from
- * Chrome DevTools Network tab. Synthesizes `sessionid_ss` if only `sessionid` is present.
- */
-export function parseCookieHeader(text: string): StoredCookie[] {
-  const cleaned = text.trim().replace(/^cookie\s*:\s*/i, '')
-  const expires = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60
-  const cookies: StoredCookie[] = []
-
-  for (const segment of cleaned.split(/[;\r\n]+/)) {
-    const part = segment.trim()
-    const eq = part.indexOf('=')
-    if (eq <= 0) continue
-    const name = part.slice(0, eq).trim()
-    const value = part.slice(eq + 1).trim()
-    if (!name || /\s/.test(name)) continue
-    cookies.push({ name, value, domain: '.tiktok.com', path: '/', secure: true, expires })
-  }
-
-  const sid = cookies.find((c) => c.name === 'sessionid' && c.value)?.value
-  if (sid && !cookies.some((c) => c.name === 'sessionid_ss')) {
-    cookies.push({ name: 'sessionid_ss', value: sid, domain: '.tiktok.com', path: '/', secure: true, expires })
-  }
-  return cookies
-}
-
-/**
- * Auto-detects any supported Chrome cookie format:
- * 1. JSON cookie array (Cookie-Editor / EditThisCookie)
- * 2. Netscape cookies.txt (Get cookies.txt LOCALLY)
- * 3. Cookie header or `sessionid=...` pairs
- * 4. Bare `sessionid` token copied from Chrome DevTools -> Application -> Cookies
- */
-export function parseCookieInput(text: string): StoredCookie[] {
-  const trimmed = text.trim()
-  if (!trimmed) return []
-  if (trimmed.startsWith('[')) return parseJsonCookies(trimmed)
-
-  const netscape = parseNetscape(trimmed)
-  if (netscape.length > 0) return netscape
-
-  if (trimmed.includes('=')) {
-    const header = parseCookieHeader(trimmed)
-    if (header.length > 0) return header
-  }
-
-  if (!/\s/.test(trimmed) && trimmed.length >= 8) {
-    return sessionIdToCookies(trimmed)
-  }
-
-  return []
-}
-```
-*(Automatically exported via `export * from './cookies'` in `packages/core/src/index.ts`.)*
-
-### 2.4 Immediate Session Verification on Cookie Import (`packages/core/src/uploader/auth.ts` & `packages/core/src/index.ts`)
-1. In `packages/core/src/uploader/auth.ts`, update `inspectAccount()` (lines 202–208) so `cookies.txt` is injected if `checkSession(page)` is initially false:
-   ```ts
-   const { page, context, close } = launched
-   try {
-     let signedIn = await checkSession(page)
-     if (!signedIn) {
-       const fallback = cookiesPath(accountId)
-       if (existsSync(fallback)) {
-         const cookies = parseNetscape(await readFile(fallback, 'utf8'))
-         if (cookies.length > 0) {
-           await context.addCookies(toPlaywrightCookies(cookies) as unknown as Cookie[])
-           signedIn = await checkSession(page)
-         }
-       }
-     }
-     return {
-       signedIn,
-       message: signedIn ? 'Signed in' : `Not signed in. Run: tiktok-up login --account ${accountId}`
-     }
-   } catch (error) {
-   ```
-2. Add `applyImportedCookies()` in `packages/core/src/uploader/auth.ts`:
-   ```ts
-   /**
-    * Replaces cookies in the account's persistent browser profile with imported cookies
-    * and verifies immediately whether TikTok recognizes the session.
-    */
-   export async function applyImportedCookies(
-     accountId: string,
-     cookies: StoredCookie[],
-     options: { browserPath?: string; source?: string } = {}
-   ): Promise<AuthStatus> {
-     try {
-       acquireLock(accountId, options.source ?? 'cookies-import')
-     } catch (error) {
-       return {
-         signedIn: false,
-         message: (error as Error).message,
-         ...(error instanceof LockBusyError ? { locked: true } : {})
-       }
-     }
-
-     let launched: Awaited<ReturnType<typeof launchContext>>
-     try {
-       launched = await launchContext({
-         userDataDir: browserProfileDir(accountId),
-         headless: true,
-         browserPath: options.browserPath
-       })
-     } catch (error) {
-       releaseLock(accountId)
-       return { signedIn: false, message: (error as Error).message }
-     }
-
-     const { page, context, close } = launched
-     try {
-       await context.clearCookies()
-       await context.addCookies(toPlaywrightCookies(cookies) as unknown as Cookie[])
-       const signedIn = await checkSession(page)
-       return {
-         signedIn,
-         message: signedIn
-           ? `Imported ${cookies.length} cookie(s) and verified sign-in`
-           : `Imported ${cookies.length} cookie(s), but TikTok did not accept the session. Make sure you are signed in to tiktok.com in Chrome and copied a valid sessionid.`
-       }
-     } catch (error) {
-       return { signedIn: false, message: (error as Error).message }
-     } finally {
-       releaseLock(accountId)
-       await closeBrowser(close)
-     }
-   }
-   ```
-3. In `packages/core/src/index.ts`, add `applyImportedCookies` to the named export block from `'./uploader/auth'`.
-
-### 2.5 Unit Tests (`packages/core/tests/cookies.test.ts` & `packages/core/tests/profiles.test.ts`)
-1. **`packages/core/tests/cookies.test.ts`**:
-   - Test `parseJsonCookies` with Cookie-Editor JSON (`expirationDate` float → floored `expires`, `sameSite: 'no_restriction'` → `'None'`, `'lax'` → `'Lax'`, `'strict'` → `'Strict'`, `'unspecified'` → `undefined`, mixed domains filtered to TikTok, invalid JSON returns `[]`).
-   - Test `parseCookieHeader` with `Cookie: a=1; sessionid=xyz123; token=a=b`, verifying `=` in values is preserved and `sessionid_ss` is synthesized only when missing.
-   - Test `parseCookieInput` auto-detecting JSON, Netscape, `Cookie:` header, bare `sessionid` (`'0123456789abcdef'`), and rejecting empty/prose input (`'hello world'` → `[]`).
-2. **`packages/core/tests/profiles.test.ts`**:
-   - Test `generateAccountId` and `createAccount`: slug generation (`'Brand Main!'` → `'brand-main'`), collision suffixing (`'brand-main-2'`), non-ASCII fallback (`'🚀'` → `'account'`), blank label throws.
-
----
-
-## 3. Phase 2 — Desktop Main & Preload (`packages/desktop/src/main`, `packages/desktop/src/preload`)
-
-### 3.1 `packages/desktop/src/main/index.ts`
-- Import `nativeTheme` from `'electron'` and `loadSettings` from `'@tiktok-uploader/core'`.
-- Define:
-  ```ts
-  const LIGHT_BG = '#f5f6f8'
-  const DARK_BG = '#0f1014'
-
-  function resolveBg(theme?: 'system' | 'light' | 'dark'): string {
-    if (theme === 'light') return LIGHT_BG
-    if (theme === 'dark') return DARK_BG
-    return nativeTheme.shouldUseDarkColors ? DARK_BG : LIGHT_BG
-  }
-  ```
-- In `app.whenReady().then(...)`, set `nativeTheme.themeSource = loadSettings().theme ?? 'system'` BEFORE calling `createWindow()`.
-- In `createWindow()`, set `backgroundColor: resolveBg(loadSettings().theme)`.
-- Keep `minWidth: 940`, `minHeight: 640`, `width: 1240`, `height: 820`.
-
-### 3.2 `packages/desktop/src/main/ipc.ts`
-1. Import `nativeTheme` from `'electron'`, plus `applyImportedCookies`, `createAccount`, `parseCookieInput`, `sessionIdOf` from `'@tiktok-uploader/core'`.
-2. Add label helper so no user-facing message leaks internal IDs:
-   ```ts
-   const accountLabel = (accountId: string): string =>
-     listAccounts().find((a) => a.id === accountId)?.label ?? 'Account'
-   ```
-3. In `settings:set`:
-   ```ts
-   ipcMain.handle('settings:set', (_event, patch: Partial<Settings>) => {
-     const next = saveSettings(patch)
-     if (patch.theme) {
-       nativeTheme.themeSource = next.theme ?? 'system'
-       const win = getWindow()
-       if (win && !win.isDestroyed()) {
-         const dark = next.theme === 'dark' || (next.theme !== 'light' && nativeTheme.shouldUseDarkColors)
-         win.setBackgroundColor(dark ? '#0f1014' : '#f5f6f8')
-       }
-     }
-     return next
-   })
-   ```
-4. In `accounts:add`:
-   ```ts
-   ipcMain.handle('accounts:add', (_event, input: { id?: string; label: string }) => {
-     const account = input.id?.trim()
-       ? addAccount(input.id.trim(), input.label)
-       : createAccount(input.label)
-     signedIn.set(account.id, signedIn.get(account.id) ?? false)
-     return summarize(account)
-   })
-   ```
-5. Add shared cookie import & verification helper inside `registerIpc`:
-   ```ts
-   async function saveAndVerifyCookies(
-     accountId: string,
-     rawText: string
-   ): Promise<{ ok: boolean; signedIn: boolean; count: number; message: string }> {
-     const cookies = parseCookieInput(rawText)
-     if (cookies.length === 0) {
-       return {
-         ok: false,
-         signedIn: false,
-         count: 0,
-         message: 'No valid cookies detected. Paste your sessionid from Chrome DevTools, or a JSON / Netscape export.'
-       }
-     }
-     if (!sessionIdOf(cookies)) {
-       return {
-         ok: false,
-         signedIn: false,
-         count: cookies.length,
-         message: 'No "sessionid" cookie found. Make sure you are logged in to tiktok.com in Chrome before exporting.'
-       }
-     }
-
-     const target = cookiesPath(accountId)
-     await mkdir(dirname(target), { recursive: true, mode: 0o700 })
-     await writeFile(target, serializeNetscape(cookies), { encoding: 'utf8', mode: 0o600 })
-     if (process.platform !== 'win32') chmodSync(target, 0o600)
-
+  2. In `packages/core/src/uploader/auth.ts` inside `applyImportedCookies()` return object (around line 274), add `...(restored ? { restored: true } : {})`.
+  3. In `packages/desktop/src/main/ipc.ts` inside `saveAndVerifyCookies()`, call `applyImportedCookies()` FIRST; only write `cookies.txt` and mark signed-in when `status.signedIn` is `true`, and do NOT overwrite a previously working `signedIn` state when `status.restored` or `status.locked` is `true`:
+     ```ts
      const status = await applyImportedCookies(accountId, cookies, {
        browserPath: loadSettings().browserPath,
        source: 'desktop'
      })
-     signedIn.set(accountId, status.signedIn)
+
+     if (status.signedIn) {
+       const target = cookiesPath(accountId)
+       await mkdir(dirname(target), { recursive: true, mode: 0o700 })
+       await writeFile(target, serializeNetscape(cookies), { encoding: 'utf8', mode: 0o600 })
+       if (process.platform !== 'win32') chmodSync(target, 0o600)
+       signedIn.set(accountId, true)
+       updateAccount(accountId, { lastSignedIn: true, lastCheckedAt: new Date().toISOString() })
+     } else if (!status.restored && !status.locked) {
+       signedIn.set(accountId, false)
+       updateAccount(accountId, { lastSignedIn: false, lastCheckedAt: new Date().toISOString() })
+     }
+
      return {
        ok: status.signedIn,
        signedIn: status.signedIn,
        count: cookies.length,
        message: status.message
      }
+     ```
+
+### A.2 Fix Schedule Clear (`✕`) Overlapping Native Calendar Picker
+- **Files**: `packages/desktop/src/renderer/src/components/JobRow.tsx` (lines 87–104), `packages/desktop/src/renderer/src/styles.css` (lines 764–785)
+- **Bug**: `.clear-btn` is `position: absolute; top: 15px; right: 12px;`, sitting directly over Chromium's calendar icon inside `<input type="datetime-local">`.
+- **Exact Fix**:
+  1. Wrap the input and button inside `<div className="schedule-input-wrap">`:
+     ```tsx
+     <div className="schedule-input-wrap">
+       <input
+         type="datetime-local"
+         className="datetime-input"
+         value={isoToLocal(job.schedule)}
+         disabled={scheduleDisabled}
+         aria-label={`Schedule for ${name}`}
+         title={scheduleDisabled ? disabledReason : undefined}
+         onChange={(e) => onChange({ schedule: localToIso(e.target.value) })}
+       />
+       {job.schedule && !scheduleDisabled ? (
+         <button
+           type="button"
+           className="clear-btn"
+           title="Clear schedule (post now)"
+           aria-label="Clear schedule"
+           onClick={() => onChange({ schedule: null })}
+         >
+           <CloseIcon size={12} />
+         </button>
+       ) : null}
+     </div>
+     ```
+  2. Replace `.clear-btn` absolute CSS with flex layout:
+     ```css
+     .schedule-input-wrap {
+       display: flex;
+       align-items: center;
+       gap: 4px;
+     }
+     .schedule-cell .datetime-input {
+       flex: 1 1 auto;
+       min-width: 0;
+       width: 100%;
+       height: 28px;
+       padding: 0 6px 0 8px;
+       font-size: 11.5px;
+       font-variant-numeric: tabular-nums;
+     }
+     .clear-btn {
+       flex: 0 0 auto;
+       width: 24px;
+       height: 24px;
+       border-radius: var(--radius-sm);
+     }
+     ```
+
+### A.3 Fix `.remove-btn:hover` Red Hover Overridden by Later CSS
+- **File**: `packages/desktop/src/renderer/src/styles.css` (lines 956–960 vs lines 1627–1634)
+- **Exact Fix**: Remove `.remove-btn:hover:not(:disabled)` from the shared neutral hover selector at line 1628 so the red danger hover rule (`background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger-text);`) wins.
+
+### A.4 Stop Leaking Internal `accountId` Into the Activity Log
+- **File**: `packages/desktop/src/renderer/src/App.tsx` (line 211)
+- **Exact Fix**: Sanitize CLI hints before logging:
+  ```ts
+  if (!status.signedIn) {
+    const clean = /tiktok-up login/i.test(status.message)
+      ? 'Not signed in — click Sign In or Import Chrome Cookies'
+      : status.message
+    addLog(`${labelOf(accountId)}: ${clean}`, 'error')
+  }
+  ```
+
+### A.5 Polish Fixes Bundle
+Apply all of the following while editing the corresponding components/CSS:
+1. **Sidebar account label truncation (`App.tsx` line 634)**: Wrap `{label}` inside `<span className="account-name">{label}</span>` so `.account-item > *:not(.status-dot)` applies `text-overflow: ellipsis`.
+2. **Queue table width (`styles.css` lines 573–627)**: Reduce `.queue-table { min-width: 700px; }` and tighten column widths (Video `152px`, Caption `auto`, Schedule `172px`, Settings `204px`, Status `118px`) so the table fits without horizontal scrolling on normal desktop widths.
+3. **Balanced Sidebar `.account-actions` (`App.tsx` & `styles.css`)**: Replace the 5-button 2-col grid (which leaves an orphan 5th button) with 2 rows:
+   - Row 1 (`.account-actions-primary`, `grid-template-columns: 1fr 1fr`): **Sign In** and **Cookies** (`title="Import Chrome Cookies"`).
+   - Row 2 (`.account-actions-secondary`, `grid-template-columns: repeat(3, 1fr)`): **Export**, **Edit** (opens `AccountSettingsModal`), **Delete** (`btn ghost sm` / `btn danger sm`).
+4. **Sidebar `+` button (`App.tsx` line 619)**: Change `className="btn ghost sm"` → `className="icon-btn"`.
+5. **Empty state layout & clickable connect links (`App.tsx` lines 793–809)**:
+   - Wrap `Add Videos` (`btn primary`) and `Add Folder` (`btn`) side-by-side inside `<div className="empty-actions">`.
+   - Make `"Need to connect this account? Sign In or Import Chrome Cookies"` real clickable `.text-link` buttons.
+6. **`Show browser` alignment (`App.tsx` line 714)**: Replace `<label className="hint" style={...}>` with `<label className="header-toggle">` (`margin: 0; display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); cursor: pointer;`).
+7. **`JobRow` badges & spacing (`JobRow.tsx` lines 78–84, 139–153)**:
+   - Render `length > HARD_LIMIT ? <error> : length > SOFT_LIMIT ? <warn> : null` (never BOTH badges simultaneously).
+   - Add `margin-top: 5px;` to `.caption-meta`.
+   - Render `.screenshot-link` on its own line (`display: block; margin-top: 4px;`).
+8. **`ImportCookiesModal` empty badge (`ImportCookiesModal.tsx` lines 162–165)**:
+   - When `!raw.trim()`, display `<span className="badge">Auto-detect</span>` instead of `"Unknown format"`.
+   - When `raw.trim()`, display `<span className={format ? 'badge ok' : 'badge warn'}>{format ?? 'Unrecognized format'}</span>`.
+9. **Activity Log header click (`styles.css` line 1045 & `App.tsx` line 840)**: Remove `cursor: pointer` from `.log-header` (or make the entire header toggle while calling `e.stopPropagation()` on `Clear` and `Copy`).
+10. **Toasts, progress bar, BulkModal & OS theme listener**:
+    - Call `pushToast(...)` in `applyBulk` and `clearFinished`.
+    - Sync `accountsRef.current = list` immediately alongside `setAccounts(list)`.
+    - In `BulkModal.tsx` line 95, use `aria-pressed={every.trim() === preset}`.
+    - In `main/index.ts`, subscribe to `nativeTheme.on('updated', ...)` so if `loadSettings().theme === 'system'` and OS theme changes while open, `window?.setBackgroundColor(resolveBg('system'))` updates automatically.
+    - When `running` is true for the active account and `completed > 0`, show determinate width on `.run-progress-fill` (`style={{ width: `${pct}%`, animation: 'none' }}`) instead of infinite sweep.
+
+---
+
+## 2. Part B — Recursive Folder Upload Option
+
+### B.1 Core (`packages/core/src/videos.ts`)
+Replace `listVideos` with recursive-capable implementation (default `recursive: false` preserves all existing behavior):
+
+```ts
+import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { basename, extname, join } from 'node:path'
+
+export interface ListVideosOptions {
+  recursive?: boolean
+}
+
+/** Supported videos inside `directory` (direct children by default; set `recursive: true` for subfolders). */
+export function listVideos(directory: string, options: ListVideosOptions = {}): VideoItem[] {
+  const recursive = Boolean(options.recursive)
+  const items: VideoItem[] = []
+  const visited = new Set<string>()
+
+  const walk = (dir: string): void => {
+    let real: string
+    try {
+      real = realpathSync(dir)
+    } catch {
+      return
+    }
+    if (visited.has(real)) return
+    visited.add(real)
+
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      const fullPath = join(dir, entry.name)
+
+      if (entry.isDirectory()) {
+        if (recursive) walk(fullPath)
+        continue
+      }
+
+      if (entry.isSymbolicLink()) {
+        try {
+          const stats = statSync(fullPath)
+          if (stats.isDirectory()) {
+            if (recursive) walk(fullPath)
+            continue
+          }
+          if (stats.isFile() && isSupportedVideo(entry.name) && stats.size > 0) {
+            items.push({
+              path: fullPath,
+              title: filenameTitle(fullPath),
+              size: stats.size,
+              mtimeMs: stats.mtimeMs
+            })
+          }
+        } catch {
+          // broken symlink or unreadable target
+        }
+        continue
+      }
+
+      if (!entry.isFile() || !isSupportedVideo(entry.name)) continue
+      try {
+        const stats = statSync(fullPath)
+        if (stats.size > 0) {
+          items.push({
+            path: fullPath,
+            title: filenameTitle(fullPath),
+            size: stats.size,
+            mtimeMs: stats.mtimeMs
+          })
+        }
+      } catch {
+        // skip unreadable file
+      }
+    }
+  }
+
+  walk(directory)
+  return items.sort((a, b) => a.path.localeCompare(b.path))
+}
+```
+
+### B.2 Settings (`packages/core/src/types.ts`, `packages/core/src/settings.ts`)
+- Add `recursiveFolder?: boolean` to `Settings` interface.
+- Add `recursiveFolder: false` to `DEFAULT_SETTINGS`.
+
+### B.3 CLI (`packages/cli/src/index.ts`)
+- Add `recursive?: boolean` to `UploadOptions`.
+- Update `expandPaths(args: string[], recursive = false): string[]` to call `listVideos(path, { recursive })`.
+- Add `.option('-r, --recursive', 'include videos in subfolders')` to the `upload` command and pass `Boolean(options.recursive)` to `expandPaths(paths, Boolean(options.recursive))`.
+
+### B.4 Desktop IPC, Preload & UI
+- **`packages/desktop/src/main/ipc.ts`**:
+  ```ts
+  ipcMain.handle(
+    'videos:list',
+    (_event, directory: string, options?: { recursive?: boolean }) =>
+      listVideos(directory, options)
+  )
+  ```
+- **`packages/desktop/src/preload/index.ts` & `index.d.ts`**:
+  ```ts
+  videos: {
+    pick(): Promise<string[]>
+    pickFolder(): Promise<string | null>
+    list(directory: string, options?: { recursive?: boolean }): Promise<VideoItem[]>
+  }
+  ```
+- **Desktop UI**:
+  - Compute effective recursive mode for the active account:
+    `const recursiveFolder = currentAccount?.recursiveFolder ?? settings.recursiveFolder ?? false`
+  - Add a compact `.option-pill` button right next to **Add Folder** in the Queue sub-toolbar:
+    ```tsx
+    <button
+      type="button"
+      className="option-pill"
+      aria-pressed={recursiveFolder}
+      title="Include videos inside nested subfolders when adding or dropping folders"
+      onClick={() => void toggleRecursiveFolder()}
+    >
+      {recursiveFolder ? <CheckIcon size={12} /> : null}
+      Subfolders
+    </button>
+    ```
+    Clicking it saves `{ recursiveFolder: !recursiveFolder }` to `settings` (or updates the active account's override if set).
+  - Pass `{ recursive: recursiveFolder }` in `addFolder()`, `handleDrop()`, `scanLinkedFolder()`, and sidebar-account drops!
+  - Also add **Include subfolders by default** (`ToggleSwitch`) in `SettingsModal.tsx`.
+
+---
+
+## 3. Part C — Separate Queue vs. Completed Views & Fix Bulk Schedule Scope
+
+### C.1 Workspace 3-Tab Navigation (`App.tsx`, `styles.css`)
+When viewing an individual account (not the All Accounts Overview), render a crisp workspace tab bar directly under `.workspace-header`:
+```text
+[ Queue (4) ]   [ Completed (12) ]   [ TikTok Library (28) ]
+```
+- State: `const [workspaceTab, setWorkspaceTab] = useState<'queue' | 'completed' | 'library'>('queue')`.
+- Tab count badges:
+  - **Queue**: `activeJobs.length`
+  - **Completed**: `completedJobs.length`
+  - **TikTok Library**: `library?.items.length ?? 0` (omit badge if never synced yet)
+
+### C.2 Strict Job Scoping Rules (Fixes Bulk Schedule Overwriting Completed Rows!)
+Define explicit derived arrays in `App.tsx`:
+```ts
+const isActiveJob = (job: Job): boolean =>
+  job.status === 'pending' || job.status === 'running' || job.status === 'failed'
+
+const isRunnableJob = (job: Job): boolean =>
+  job.status === 'pending' || job.status === 'failed'
+
+const activeJobs = useMemo(() => jobs.filter(isActiveJob), [jobs])
+const runnableJobs = useMemo(() => jobs.filter(isRunnableJob), [jobs])
+const completedJobs = useMemo(
+  () => jobs.filter((job) => job.status === 'done' || job.status === 'skipped'),
+  [jobs]
+)
+const schedulableCount = useMemo(
+  () => runnableJobs.filter((job) => !job.draft && job.visibility !== 'private').length,
+  [runnableJobs]
+)
+```
+
+Enforce these 5 rules strictly:
+1. **`applyBulk(timestamps)`**: ONLY schedules `isRunnableJob(job) && !job.draft && job.visibility !== 'private'`. **NEVER modifies `done`, `skipped`, or `running` rows:**
+   ```ts
+   function applyBulk(timestamps: string[]) {
+     let index = 0
+     commit(
+       jobsRef.current.map((job): Job => {
+         if (!isRunnableJob(job)) return job
+         if (job.draft || job.visibility === 'private') return { ...job, schedule: null }
+         const iso = timestamps[index++]
+         return iso ? { ...job, schedule: iso } : job
+       })
+     )
+     setBulkOpen(false)
+     addLog(`Applied ${timestamps.length} schedule slot(s) to pending jobs`)
+     pushToast(`Scheduled ${timestamps.length} video${timestamps.length === 1 ? '' : 's'}`, 'ok')
    }
    ```
-6. Update `auth:import-cookies` (accepts `.txt` and `.json`) and add `auth:import-cookies-text`:
+   *(Note: If a row is already `done`, its historical `schedule` stays preserved untouched!)*
+2. **Header `Run` button**:
+   - Disabled when `!currentAccount || !runnableJobs.length || busy`.
+   - Label: `Run (${runnableJobs.length})` when `runnableJobs.length > 0`, else `Run`.
+3. **`ConfirmModal`**:
+   - Pass `jobs={runnableJobs}` (NOT all `jobs`!) so counts, schedule span, empty captions, and hard-limit errors only evaluate videos that will actually be uploaded.
+4. **Queue Tab**:
+   - Shows ONLY `activeJobs` (`pending`, `running`, `failed`).
+   - Empty state when `activeJobs.length === 0`: if `completedJobs.length > 0`, show *"All caught up — N completed video(s)"* with buttons to **Add Videos**, **Add Folder**, or **View Completed**.
+   - Sub-toolbar buttons: `Add Videos`, `Add Folder`, `Subfolders` toggle pill, optional `Scan Linked Folder` (when `currentAccount.sourceFolder` is set), `Bulk Schedule`, `Retry Failed` (when `failedCount > 0`).
+5. **Completed Tab (`components/CompletedRow.tsx`)**:
+   - Shows ONLY `completedJobs` (`done`, `skipped`) in a clean read-only table:
+     - **Video**: `FilmIcon` thumb + filename + `.ext` tag
+     - **Caption**: clamped read-only preview (`2 lines`, full tooltip)
+     - **Schedule**: `formatWhen(job.schedule)`
+     - **Settings**: read-only visibility + active tag badges (`Draft`, `AI`)
+     - **Status & Actions**: `Done`/`Skipped` pill + **Re-queue** button (`RefreshIcon`, resets `{ status: 'pending', error: undefined, screenshot: undefined }` and moves back to Queue with toast) + **Remove** button (`TrashIcon`).
+   - Completed tab sub-toolbar shows `N completed` count + **Clear All Completed** button (`clearFinished()`).
+   - Empty state when `completedJobs.length === 0`: *"No completed uploads yet"*.
+
+---
+
+## 4. Part D — In-App TikTok Library (View Existing TikTok Videos)
+
+### D.1 Core Types & Paths (`packages/core/src/types.ts`, `packages/core/src/paths.ts`)
+1. In `packages/core/src/types.ts`, add:
    ```ts
-   ipcMain.handle('auth:import-cookies', async (_event, accountId: string) => {
-     try {
-       const picked = await showOpen({
-         title: 'Import Chrome cookies (.txt or .json)',
-         properties: ['openFile'],
-         filters: [{ name: 'Cookie files', extensions: ['txt', 'json'] }]
-       })
-       const file = picked.filePaths[0]
-       if (picked.canceled || !file) return { ok: false, canceled: true, message: 'Cancelled' }
-       return await saveAndVerifyCookies(accountId, await readFile(file, 'utf8'))
-     } catch (error) {
-       return { ok: false, message: `Cookie import failed: ${errorMessage(error)}` }
-     }
-   })
+   export type RemoteVideoStatus =
+     | 'published'
+     | 'scheduled'
+     | 'draft'
+     | 'private'
+     | 'processing'
+     | 'unknown'
 
-   ipcMain.handle(
-     'auth:import-cookies-text',
-     async (_event, input: { accountId: string; text: string }) => {
-       try {
-         return await saveAndVerifyCookies(input.accountId, input.text)
-       } catch (error) {
-         return { ok: false, message: `Cookie import failed: ${errorMessage(error)}` }
-       }
-     }
-   )
+   export interface TikTokVideo {
+     id: string
+     caption: string
+     /** Base64 data URI fetched in Playwright so renderer CSP stays `img-src 'self' data:` */
+     thumbnailDataUrl?: string
+     url: string
+     status: RemoteVideoStatus
+     visibility: Visibility | 'unknown'
+     createdAt?: string
+     scheduledAt?: string
+     durationSec?: number
+     views?: number
+     likes?: number
+     comments?: number
+     shares?: number
+   }
+
+   export interface AccountLibrary {
+     fetchedAt: string
+     handle?: string
+     items: TikTokVideo[]
+   }
    ```
-7. Update `auth:export-cookies` `defaultPath` (`cookies-${safeSlugOfLabel}.txt`) and `queue:start` error/log messages to use `accountLabel(accountId)` instead of raw `accountId`.
+2. In `packages/core/src/paths.ts`, add:
+   ```ts
+   export const libraryPath = (id: string): string => join(accountDir(id), 'library.json')
+   ```
 
-### 3.3 `packages/desktop/src/preload/index.d.ts` & `packages/desktop/src/preload/index.ts`
-Add `ImportCookiesResult` type and keep both files strictly synchronized:
+### D.2 Selectors (`packages/core/src/selectors.ts`)
+Add to `PATHS`:
 ```ts
-export interface ImportCookiesResult {
+export const PATHS = {
+  main: 'https://www.tiktok.com/',
+  login: 'https://www.tiktok.com/login',
+  upload: 'https://www.tiktok.com/creator-center/upload?lang=en',
+  content: 'https://www.tiktok.com/tiktokstudio/content'
+} as const
+```
+Add `library` section to `SELECTORS`:
+```ts
+  library: {
+    apiUrlPatterns: [
+      '/api/post/item_list',
+      '/aweme/v1/creator/item/list',
+      '/tiktok/studio/api',
+      '/item_list',
+      '/item/list',
+      '/creator/item'
+    ],
+    row: '[data-e2e="post-row"], [data-e2e="video-row"], table tbody tr, [class*="video-item"], [class*="post-item"]',
+    videoLink: 'a[href*="/video/"]',
+    thumbnail: 'img[src]'
+  }
+```
+
+### D.3 Core Library Sync & Cache (`packages/core/src/uploader/library.ts`)
+Create `packages/core/src/uploader/library.ts` (and export `loadLibrary`, `saveLibrary`, `parseCreatorApiPayload`, `syncAccountLibrary` from `packages/core/src/index.ts`):
+
+#### 1. Disk Cache Helpers
+- `loadLibrary(accountId: string): AccountLibrary | null`: reads `libraryPath(accountId)` safely (`try/catch` → `null`).
+- `saveLibrary(accountId: string, library: AccountLibrary): void`: atomic `.tmp` + `renameSync` into `dirname(libraryPath(accountId))` with `mode: 0o700`.
+
+#### 2. Pure API Payload Normalizer (`parseCreatorApiPayload`)
+Export `export interface RawLibraryItem extends Omit<TikTokVideo, 'thumbnailDataUrl'> { coverUrl?: string }`.
+`parseCreatorApiPayload(payload: unknown): { handle?: string; items: RawLibraryItem[] }`:
+- Locate candidate item array from `payload` object (checking `itemList`, `items`, `aweme_list`, `item_info_list`, `video_list`, `list`, or nested `data.itemList` / `data.items` / `data.aweme_list` / `data.item_info_list` / `data.list`).
+- If no array found, return `{ items: [] }`.
+- For each object entry:
+  - Extract `id`: `String(entry.id ?? entry.item_id ?? entry.itemId ?? entry.aweme_id ?? '')`. Skip if empty.
+  - Extract `handle`: `entry.author?.uniqueId ?? entry.author?.unique_id ?? entry.uniqueId ?? entry.creator?.uniqueId`.
+  - Extract `caption`: `String(entry.desc ?? entry.title ?? entry.caption ?? '').trim()`.
+  - Extract `coverUrl`: `entry.video?.cover ?? entry.video?.originCover ?? entry.video?.dynamicCover ?? entry.cover_url ?? entry.coverUrl ?? entry.cover ?? entry.thumbnail`.
+  - Extract timestamps:
+    - `createRaw = Number(entry.createTime ?? entry.create_time ?? entry.post_time ?? 0)` → convert Unix seconds (`< 1e12 ? createRaw * 1000 : createRaw`) to ISO string if `> 0`.
+    - `schedRaw = Number(entry.scheduleTime ?? entry.schedule_time ?? 0)` → convert to ISO string if `> 0`.
+  - Determine `visibility`:
+    - Check `entry.privateItem`, `entry.is_private`, `entry.visibility`, `entry.privacy_level`, `entry.status?.private_status`:
+      - private / `2` / `SELF_ONLY` → `'private'`
+      - friends / `1` / `MUTUAL_FOLLOW_FRIENDS` → `'friends'`
+      - everyone / public / `0` / `PUBLIC_TO_EVERYONE` → `'everyone'`
+      - fallback → `'unknown'`
+  - Determine `status`:
+    - If `scheduledAt` is set (and in future, or `entry.is_scheduled` / `entry.status === 'scheduled'` / `entry.status_type === 'scheduled'`) → `'scheduled'`
+    - Else if `entry.is_draft` / `entry.status === 'draft'` → `'draft'`
+    - Else if `visibility === 'private'` → `'private'`
+    - Else if `entry.status === 'processing'` / `entry.is_processing` → `'processing'`
+    - Else → `'published'`
+  - Extract stats (check `entry.stats ?? entry.statistics ?? entry.metrics ?? entry`):
+    - `views`: `playCount ?? play_count ?? view_count ?? views`
+    - `likes`: `diggCount ?? digg_count ?? like_count ?? likes`
+    - `comments`: `commentCount ?? comment_count ?? comments`
+    - `shares`: `shareCount ?? share_count ?? shares`
+  - Extract `durationSec`: `Number(entry.video?.duration ?? entry.duration ?? 0)` (if `> 10_000`, assume ms and divide by 1000; round to integer).
+  - Build `url`: if `entry.share_url` / `entry.url` starts with `https://www.tiktok.com/`, use it; else if `handle`, `https://www.tiktok.com/@${handle}/video/${id}`; else `PATHS.content`.
+
+#### 3. Playwright Sync (`syncAccountLibrary`)
+```ts
+export interface SyncLibraryResult {
   ok: boolean
-  signedIn?: boolean
-  canceled?: boolean
-  count?: number
+  library?: AccountLibrary
+  locked?: boolean
   message: string
 }
+
+export async function syncAccountLibrary(
+  accountId: string,
+  options: { browserPath?: string; source?: string; maxItems?: number } = {}
+): Promise<SyncLibraryResult>
 ```
-Update `accounts.add` to accept `{ id?: string; label: string }` and add `auth.importCookiesText(input: { accountId: string; text: string }): Promise<ImportCookiesResult>`.
+Step-by-step execution:
+1. Acquire lock: `acquireLock(accountId, options.source ?? 'library-sync')`. Return `{ ok: false, locked: true, message }` on `LockBusyError`.
+2. Launch headless context (`launchContext({ userDataDir: browserProfileDir(accountId), headless: true, browserPath: options.browserPath })`).
+3. Wrap in `try / finally` (always `releaseLock(accountId)` and `closeBrowser(close)`).
+4. Call `await ensureAuthenticated({ context, page, accountId, report: () => {} })`. If `AuthError`, return `{ ok: false, message: error.message }`.
+5. Attach `page.on('response', ...)` listener BEFORE `page.goto`:
+   - Check if `response.status() === 200`, `content-type` includes `json`, and URL matches any pattern in `SELECTORS.library.apiUrlPatterns`.
+   - Parse JSON safely, run `parseCreatorApiPayload(json)`, collect `handle` and `RawLibraryItem`s into a `Map<string, RawLibraryItem>` (deduplicated by `id`).
+6. Navigate to `PATHS.content` (`waitUntil: 'domcontentloaded'`).
+7. Check `await assertSignedIn(page, 'TikTok Studio content')`.
+8. Wait up to `12_000ms` (polling every `500ms`) until either `captured.size > 0` OR `await page.locator(SELECTORS.library.row).count() > 0` (also give 1.5s extra once the first API response arrives so secondary pages settle).
+9. **DOM Fallback**: If `captured.size === 0`, run `page.evaluate(...)` using `SELECTORS.library` to scrape visible rows (`a[href*="/video/"]`, `img[src]`, row text) so even if TikTok renames API routes, basic video listing still works.
+10. **Authenticated Thumbnail Fetch (CSP-Safe)**:
+    - Slice deduplicated items to `maxItems` (default `40`).
+    - Process in batches of `5` using `Promise.allSettled`:
+      - For each item with `coverUrl` starting with `https://`:
+        - `const res = await context.request.get(item.coverUrl, { timeout: 5_000 })`
+        - If `res.ok()`: read `const buf = await res.body()`, skip if `buf.byteLength === 0 || buf.byteLength > 260_000`, read `content-type` (default `'image/jpeg'`), set `thumbnailDataUrl = \`data:${mime};base64,${buf.toString('base64')}\``.
+      - Never fail the sync if an individual thumbnail fails!
+11. Build `AccountLibrary = { fetchedAt: new Date().toISOString(), handle, items }`.
+12. Save via `saveLibrary(accountId, library)`.
+13. If `handle` was discovered, also persist `handle` onto the account via `updateAccount(accountId, { handle, lastSignedIn: true, lastCheckedAt: new Date().toISOString() })`!
+14. Return `{ ok: true, library, message: \`Synced ${items.length} video${items.length === 1 ? '' : 's'} from TikTok\` }`.
+
+### D.4 Desktop IPC & Preload
+- **`packages/desktop/src/main/ipc.ts`**:
+  - `library:load`: `(_event, accountId: string) => loadLibrary(accountId)`
+  - `library:sync`: calls `syncAccountLibrary(accountId, { browserPath: loadSettings().browserPath, source: 'desktop' })`; if `!result.ok && !result.locked && /login|expired|signed in/i.test(result.message)`, updates `signedIn.set(accountId, false)`.
+  - `shell:open-external`: validates URL strictly before opening:
+    ```ts
+    ipcMain.handle('shell:open-external', async (_event, rawUrl: string) => {
+      try {
+        const parsed = new URL(rawUrl)
+        if (
+          parsed.protocol === 'https:' &&
+          (parsed.hostname === 'tiktok.com' || parsed.hostname.endsWith('.tiktok.com'))
+        ) {
+          await shell.openExternal(parsed.toString())
+          return { ok: true }
+        }
+        return { ok: false }
+      } catch {
+        return { ok: false }
+      }
+    })
+    ```
+- **`packages/desktop/src/preload/index.ts` & `index.d.ts`**:
+  - Add `library: { load(accountId: string): Promise<AccountLibrary | null>; sync(accountId: string): Promise<SyncLibraryResult> }`
+  - Add `openExternal(url: string): Promise<{ ok: boolean }>`
+
+### D.5 Desktop UI (`packages/desktop/src/renderer/src/components/TikTokLibraryView.tsx`)
+Props:
+```ts
+export interface TikTokLibraryViewProps {
+  account: AccountSummary
+  library: AccountLibrary | null
+  syncing: boolean
+  onSync: () => void
+  onSignIn: () => void
+  onImportCookies: () => void
+}
+```
+Layout & Features:
+1. **Toolbar (`.library-toolbar`)**:
+   - Search box (`type="search"`, placeholder `"Search captions…"`)
+   - Status filter pills (`All`, `Published`, `Scheduled`, `Private`, `Draft`) with counts
+   - Spacer
+   - Last synced relative label (`Synced 3m ago` or `Not synced yet`)
+   - **Open Studio** button (`ExternalLinkIcon`, calls `window.api.openExternal('https://www.tiktok.com/tiktokstudio/content')`)
+   - **Sync Videos** primary button (`RefreshIcon`, disabled while `syncing || account.locked`)
+2. **States**:
+   - `!account.signedIn && !library`: Empty card with **Sign In** and **Import Chrome Cookies** buttons.
+   - `!library && !syncing`: Empty card explaining local TikTok Studio sync with **Sync My TikTok Videos** primary button.
+   - `syncing && !library`: Clean 6-card pulsing skeleton grid (`.library-skeleton`).
+   - `library && filtered.length === 0`: Empty card (*"No videos match your filter"* or *"No videos found on this TikTok account"*).
+3. **Video Card Grid (`.library-grid`)**:
+   - `display: grid; grid-template-columns: repeat(auto-fill, minmax(206px, 1fr)); gap: 14px; padding: 16px 18px; overflow-y: auto; flex: 1 1 auto;`
+   - Each `.library-card`:
+     - Elevated card (`background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xs); display: flex; flex-direction: column; transition: border-color 120ms ease, transform 120ms ease;`).
+     - Poster box (`.library-poster`, `aspect-ratio: 4 / 5; background: var(--surface-2); position: relative; overflow: hidden;`):
+       - `<img>` (`width: 100%; height: 100%; object-fit: cover;`) when `thumbnailDataUrl` exists, else centered `FilmIcon`.
+       - Top-left `.status-pill` badge (`Published` green, `Scheduled` accent, `Private` muted, `Draft` amber).
+       - Bottom-right `.duration-chip` (`0:42`) if `durationSec > 0`.
+     - Body (`.library-card-body`, `padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1;`):
+       - Caption (`display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12.5px; font-weight: 500; min-height: 36px;`).
+       - Date line (`Scheduled · ...` or `Posted · ...`, `font-size: 11px; color: var(--muted); tabular-nums`).
+       - Metrics strip (Views, Likes, Comments formatted compactly: `1.2K`, `420`, `18`).
+       - Footer action: full-width subtle **Open on TikTok** button (`btn ghost sm`).
 
 ---
 
-## 4. Phase 3 — Visual Design System (`index.html` & `styles.css`)
+## 5. Part E — Multi-Account Management & Parallel Runs
 
-### 4.1 `packages/desktop/src/renderer/index.html`
-Change line 10 to:
-```html
-<meta name="color-scheme" content="light dark" />
-```
+### E.1 True Parallel Multi-Account Execution (Fixes Cross-Account Event Collision!)
+- **Current Bug**: `QueueEvent` has no `accountId`, and `App.tsx` tracks a single `running: boolean`. If Account A is running and the user switches to Account B, Account A's `job-status` and `queue-done` events overwrite Account B's UI!
+- **Exact Fix**:
+  1. **`packages/core/src/types.ts`**: Add optional `accountId?: string` to every branch of `QueueEvent`:
+     ```ts
+     export type QueueEvent =
+       | { type: 'job-status'; accountId?: string; jobId: string; status: JobStatus; error?: string; screenshot?: string }
+       | { type: 'job-stage'; accountId?: string; jobId: string; stage: string }
+       | { type: 'log'; accountId?: string; jobId?: string; message: string }
+       | { type: 'auth-required'; accountId?: string; message: string }
+       | { type: 'queue-done'; accountId?: string; done: number; failed: number; skipped: number }
+     ```
+  2. **`packages/core/src/queue.ts`**: Inside `runQueue()`, ensure `emit` stamps `accountId: options.accountId` on every emitted event:
+     ```ts
+     const emit = (event: QueueEvent): void =>
+       options.onEvent?.({ ...event, accountId: event.accountId ?? options.accountId })
+     ```
+  3. **`packages/desktop/src/main/ipc.ts`**: Ensure `send(event.sender, { ...queueEvent, accountId })` always includes `accountId` even for IPC-originated lock/error logs.
+  4. **`packages/desktop/src/renderer/src/App.tsx`**:
+     - Replace `const [running, setRunning] = useState(false)` with:
+       ```ts
+       const [runningAccounts, setRunningAccounts] = useState<Set<string>>(() => new Set())
+       const isCurrentRunning = Boolean(accountId && runningAccounts.has(accountId))
+       ```
+     - In `onQueue(event)`:
+       - Determine `const targetId = event.accountId ?? accountIdRef.current`.
+       - Prefix activity log entries with `[${labelOf(targetId)}]` when `accountsRef.current.length > 1`.
+       - For `'job-status'`: ONLY mutate `jobsRef.current` / `setJobs` if `targetId === accountIdRef.current`! Also call `void refreshAccounts()` (debounced or on status change) so sidebar counts update live for background accounts too!
+       - For `'auth-required'` and `'queue-done'`: remove `targetId` from `runningAccounts` (`next.delete(targetId)`), show a toast naming `labelOf(targetId)`, and call `void refreshAccounts()`.
 
-### 4.2 Exact CSS Tokens & Studio Polish Rules (`packages/desktop/src/renderer/src/styles.css`)
+---
 
-Use these exact palettes — both are tuned for WCAG AA contrast, soft surface elevation, crisp hairline borders, and effortless Light/Dark switching:
+### E.2 Persisted Auth Metadata, Live Queue Counts & Per-Account Defaults
+1. **`packages/core/src/types.ts`**:
+   Add optional multi-account metadata to `Account` and live summary counters to `AccountSummary`:
+   ```ts
+   export type AccountColor = 'red' | 'teal' | 'blue' | 'amber' | 'purple' | 'green'
 
-```css
-:root,
-[data-theme='dark'] {
-  color-scheme: dark;
-  --bg: #0f1014;
-  --sidebar-bg: #14151b;
-  --surface: #1a1b23;
-  --surface-2: #22242e;
-  --surface-3: #2b2d3a;
-  --row-hover: rgba(255, 255, 255, 0.025);
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --border-hover: rgba(255, 255, 255, 0.24);
-  --text: #f1f2f6;
-  --text-secondary: #b8bcc9;
-  --muted: #848899;
-  --brand: #fe2c55;
-  --brand-hover: #e5234a;
-  --brand-soft: rgba(254, 44, 85, 0.14);
-  --brand-border: rgba(254, 44, 85, 0.38);
-  --accent: #25f4ee;
-  --accent-soft: rgba(37, 244, 238, 0.11);
-  --accent-border: rgba(37, 244, 238, 0.32);
-  --green: #34d399;
-  --green-soft: rgba(52, 211, 153, 0.12);
-  --green-border: rgba(52, 211, 153, 0.34);
-  --amber: #fbbf24;
-  --amber-soft: rgba(251, 191, 36, 0.12);
-  --amber-border: rgba(251, 191, 36, 0.36);
-  --danger-text: #ff8097;
-  --danger-soft: rgba(254, 44, 85, 0.12);
-  --danger-soft-hover: rgba(254, 44, 85, 0.22);
-  --danger-border: rgba(254, 44, 85, 0.38);
-  --focus-ring: 0 0 0 3px rgba(37, 244, 238, 0.22);
-  --overlay-bg: rgba(7, 8, 12, 0.62);
-  --drop-bg: rgba(15, 16, 20, 0.82);
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.24);
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.28);
-  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.56);
-  --radius-sm: 6px;
-  --radius: 8px;
-  --radius-lg: 12px;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  font-size: 13px;
-  -webkit-font-smoothing: antialiased;
-}
+   export interface AccountDefaults {
+     visibility?: Visibility
+     aiLabel?: boolean
+     maxScheduleDays?: number
+     bulkEvery?: string
+     bulkJitter?: string
+     bulkWindow?: string
+   }
 
-[data-theme='light'] {
-  color-scheme: light;
-  --bg: #f5f6f8;
-  --sidebar-bg: #eef0f4;
-  --surface: #ffffff;
-  --surface-2: #f3f4f7;
-  --surface-3: #e8eaef;
-  --row-hover: rgba(15, 23, 42, 0.024);
-  --border: rgba(15, 23, 42, 0.09);
-  --border-strong: rgba(15, 23, 42, 0.16);
-  --border-hover: rgba(15, 23, 42, 0.28);
-  --text: #111318;
-  --text-secondary: #3f4554;
-  --muted: #656d7e;
-  --brand: #e61e4d;
-  --brand-hover: #cc1742;
-  --brand-soft: rgba(230, 30, 77, 0.09);
-  --brand-border: rgba(230, 30, 77, 0.28);
-  --accent: #0d9488;
-  --accent-soft: rgba(13, 148, 136, 0.1);
-  --accent-border: rgba(13, 148, 136, 0.3);
-  --green: #15803d;
-  --green-soft: rgba(21, 128, 61, 0.09);
-  --green-border: rgba(21, 128, 61, 0.28);
-  --amber: #b45309;
-  --amber-soft: rgba(217, 119, 6, 0.1);
-  --amber-border: rgba(217, 119, 6, 0.3);
-  --danger-text: #be123c;
-  --danger-soft: rgba(225, 29, 72, 0.08);
-  --danger-soft-hover: rgba(225, 29, 72, 0.15);
-  --danger-border: rgba(225, 29, 72, 0.3);
-  --focus-ring: 0 0 0 3px rgba(13, 148, 136, 0.2);
-  --overlay-bg: rgba(15, 23, 42, 0.38);
-  --drop-bg: rgba(245, 246, 248, 0.88);
-  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.08);
-  --shadow-modal: 0 24px 60px rgba(15, 23, 42, 0.18);
-}
-```
+   export interface Account {
+     id: string
+     label: string
+     handle?: string
+     createdAt: string
+     group?: string
+     color?: AccountColor
+     lastSignedIn?: boolean
+     lastCheckedAt?: string
+     sourceFolder?: string
+     recursiveFolder?: boolean
+     defaults?: AccountDefaults
+   }
 
-### Mandatory CSS Polish Details (Implement Every One)
-1. **App Shell (`.shell`)**:
-   - `display: grid; grid-template-columns: 236px minmax(0, 1fr); height: 100vh; width: 100vw; overflow: hidden;`
-   - Left pane `.sidebar`: `background: var(--sidebar-bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0;`
-   - Right pane `.workspace`: `background: var(--bg); display: flex; flex-direction: column; min-width: 0; min-height: 0;`
-2. **Custom Thin Scrollbars**:
-   ```css
-   ::-webkit-scrollbar { width: 7px; height: 7px; }
-   ::-webkit-scrollbar-track { background: transparent; }
-   ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
-   ::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+   export interface AccountPatch {
+     label?: string
+     handle?: string
+     group?: string
+     color?: AccountColor | null
+     lastSignedIn?: boolean
+     lastCheckedAt?: string
+     sourceFolder?: string | null
+     recursiveFolder?: boolean | null
+     defaults?: AccountDefaults
+   }
+
+   export interface AccountSummary extends Account {
+     signedIn: boolean
+     locked: boolean
+     lockSource?: string
+     running: boolean
+     pendingCount: number
+     scheduledCount: number
+     failedCount: number
+     doneCount: number
+     nextSchedule: string | null
+   }
    ```
-3. **Custom Toggle Switch (`.switch`)**:
-   - Track: `width: 32px; height: 18px; border-radius: 999px; background: var(--surface-3); border: 1px solid var(--border-strong); position: relative; transition: background 150ms ease, border-color 150ms ease;`
-   - Checked track: `background: var(--brand); border-color: var(--brand);`
-   - Thumb: `width: 12px; height: 12px; border-radius: 50%; background: #fff; position: absolute; top: 2px; left: 2px; transition: transform 150ms cubic-bezier(0.2, 0.8, 0.2, 1); box-shadow: 0 1px 2px rgba(0,0,0,0.25);`
-   - Checked thumb: `transform: translateX(14px);`
-4. **Interactive Toggle Pills (`.option-pill`)** for per-video `Draft`, `AI`, `Comment`, `Duet`, `Stitch`:
-   - `display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 500; border: 1px solid var(--border-strong); background: var(--surface); color: var(--muted); cursor: pointer; transition: all 120ms ease;`
-   - Active state (`.option-pill[aria-pressed='true']`): `background: var(--accent-soft); border-color: var(--accent-border); color: var(--accent);`
-   - Special Draft active state (`.option-pill.draft[aria-pressed='true']`): `background: var(--amber-soft); border-color: var(--amber-border); color: var(--amber);`
-   - Wrap them in `.option-pills { display: flex; flex-wrap: wrap; gap: 5px; }` — compact, scannable, tactile!
-5. **Custom Styled `<select>`**:
-   - `appearance: none; padding-right: 26px;` with a subtle inline SVG chevron background (`background-position: right 8px center; background-repeat: no-repeat;`) or wrapper icon.
-6. **Buttons & Hierarchy**:
-   - `.btn`: `height: 32px; padding: 0 12px; border-radius: var(--radius-sm); font-size: 12.5px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); box-shadow: var(--shadow-xs); transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;`
-   - Active press feedback: `.btn:active:not(:disabled) { transform: scale(0.98); }`
-   - `.btn.primary`: `background: var(--brand); border-color: transparent; color: #fff; font-weight: 600;`
-   - `.btn.ghost`: `background: transparent; border-color: transparent; box-shadow: none; color: var(--text-secondary);` -> hover `background: var(--surface-2); color: var(--text);`
-   - `.btn.sm`: `height: 28px; padding: 0 10px; font-size: 12px;`
-   - `.btn.danger`: `background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger-text); box-shadow: none;`
-7. **Sidebar Account List**:
-   - Each `.account-item` is a sleek `36px` rounded button (`border-radius: var(--radius-sm); padding: 0 10px; display: flex; align-items: center; gap: 9px;`), with an `8px` status dot (`.status-dot.ok` green, `.status-dot.locked` amber, `.status-dot.off` muted) and truncated bold-when-active label.
-   - Selected `.account-item.active`: `background: var(--surface); box-shadow: var(--shadow-xs); color: var(--text); font-weight: 600;` (looks crisp and native on both Light and Dark sidebars!).
-   - Subtle hover edit/more actions or selected-account card right below the list with **Sign In**, **Chrome Cookies**, **Export**, **Rename**, and **Remove** buttons.
-8. **3-Segment Theme Switcher (`.segmented`)**:
-   - Container: `display: grid; grid-template-columns: repeat(3, 1fr); padding: 3px; border-radius: var(--radius); background: var(--surface-2); border: 1px solid var(--border); gap: 2px;`
-   - Active segment: `background: var(--surface); color: var(--text); box-shadow: var(--shadow-xs); font-weight: 600;`
-9. **Queue Card-Table Surface**:
-   - Wrap the queue table inside a floating surface container (`.queue-surface`, `margin: 14px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); overflow: hidden;`) so the table sits on an elevated card over the subtle `--bg` canvas — this single move makes Light Mode look dramatically more professional!
-   - Caption textarea inside table rows: clean subtle border `border: 1px solid transparent; background: var(--surface-2);` becoming `background: var(--surface); border-color: var(--accent); box-shadow: var(--focus-ring);` on focus.
-   - Tabular numbers (`font-variant-numeric: tabular-nums;`) on character counters, schedule dates, stats strip, and log timestamps.
-10. **Live Run Progress Bar**:
-    - `.run-progress` (`height: 3px; background: var(--surface-3); overflow: hidden;`) with `.run-progress-fill` (`background: var(--brand); transition: width 300ms ease;`).
-11. **Modals & Toasts**:
-    - `.overlay`: `backdrop-filter: blur(5px); background: var(--overlay-bg); animation: fadeIn 120ms ease;`
-    - `.modal`: `border-radius: var(--radius-lg); box-shadow: var(--shadow-modal); animation: modalIn 150ms cubic-bezier(0.16, 1, 0.3, 1);`
-    - `.toast-stack`: fixed `bottom: 48px; right: 20px; z-index: 80; display: flex; flex-direction: column; gap: 8px;`
-    - `.toast`: `background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 10px 14px; box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 8px; font-size: 12.5px; max-width: 360px;` with colored left indicator dot (`ok` / `error` / `info`).
-12. **Chrome Cookie Import Modal Styles**:
-    - `.steps-card`: `background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px;`
-    - `.steps-list`: custom numbered circle badges (`20×20` circle with `--brand-soft` background and `--brand` number) next to each clear instruction step!
-    - `<kbd>`: crisp keycap styling (`padding: 2px 6px; border-radius: 4px; font-size: 11px; font-family: ui-monospace, monospace; background: var(--surface); border: 1px solid var(--border-strong); box-shadow: 0 1px 0 var(--border-strong);`).
+   Also add `maxConcurrentAccounts?: number` to `Settings` (default `2` in `DEFAULT_SETTINGS`).
+
+2. **`packages/core/src/profiles.ts`**:
+   Add `updateAccount(id: string, patch: AccountPatch): Account`:
+   - Finds account by `assertAccountId(id)` (throws if missing).
+   - Updates `label` (trimmed, fallback to existing), `handle`, `group` (trimmed or delete if empty), `color` (delete if `null`), `lastSignedIn`, `lastCheckedAt`, `sourceFolder` (trimmed or delete if `null`/empty), `recursiveFolder` (delete if `null`), and merges `defaults`.
+   - Writes `accounts.json` and returns updated `Account`.
+
+3. **`packages/desktop/src/main/ipc.ts`**:
+   - Update `summarize(account: Account): AccountSummary`:
+     - Reads `loadQueue(account.id)` synchronously (cheap local JSON file read — zero browser launch!):
+       - `pendingCount`: `jobs.filter((j) => j.status === 'pending' || j.status === 'running').length`
+       - `scheduledCount`: `jobs.filter((j) => (j.status === 'pending' || j.status === 'failed') && Boolean(j.schedule)).length`
+       - `failedCount`: `jobs.filter((j) => j.status === 'failed').length`
+       - `doneCount`: `jobs.filter((j) => j.status === 'done' || j.status === 'skipped').length`
+       - `nextSchedule`: earliest ISO timestamp among pending/failed jobs with `schedule !== null` (or `null`).
+     - `running`: `activeRuns.has(account.id)`
+     - `signedIn`: `signedIn.has(account.id) ? Boolean(signedIn.get(account.id)) : Boolean(account.lastSignedIn)` — **solves the restart amnesia bug** so accounts immediately reflect their last-known session state on startup!
+   - Persist `{ lastSignedIn, lastCheckedAt: new Date().toISOString() }` via `updateAccount()` inside `auth:status`, `auth:login`, and `saveAndVerifyCookies`.
+   - Add IPC channels:
+     - `accounts:update` (`{ id: string; patch: AccountPatch }`) → `summarize(updateAccount(id, patch))`
+     - `queue:append` (`{ accountId: string; jobs: Job[] }`): loads `accountId`'s queue, deduplicates by `videoPath`, appends new jobs, saves to disk, and returns `{ added: number, total: number }` — powers **drag-onto-sidebar-account** and **Copy to Accounts** safely without switching tabs!
+     - `queue:start-all` (`{ accountIds: string[]; headed?: boolean }`): orchestrates parallel queue runs across multiple accounts with a concurrency cap (`loadSettings().maxConcurrentAccounts ?? 2`), skipping locked/already-running/0-runnable accounts and emitting normal tagged `queue:event` updates!
+   - Sync `packages/desktop/src/preload/index.ts` and `index.d.ts` with `accounts.update`, `queue.append`, and `queue.startAll`.
 
 ---
 
-## 5. Phase 4 — Modular Renderer Components (`packages/desktop/src/renderer/src/`)
-
-Break `App.tsx` into clean, focused files so every component is easy to read, edit, and verify:
-
-### 5.1 `packages/desktop/src/renderer/src/utils.ts`
-Export:
-- Constants: `SOFT_LIMIT = 150`, `HARD_LIMIT = 2200`, `MIN_LEAD_MINUTES = 20`, `VISIBILITIES`, `STATUS_LABEL`, `VIDEO_EXT`
-- Types: `LogLine`, `ToastItem = { id: string; message: string; tone: 'info' | 'ok' | 'error' }`
-- Pure functions: `localInput`, `isoToLocal`, `localToIso`, `stamp`, `baseName`, `fileExt`, `stem`, `errText`, `newJob`, `formatWhen`
-- `validateRowSchedule(iso: string | null, maxScheduleDays: number): { level: 'error' | 'warn'; text: string } | null`:
-  - Returns `{ level: 'error', text: 'Must be at least 20 min ahead' }` if `< now + 20m`.
-  - Returns `{ level: 'error', text: \`Exceeds ${maxScheduleDays}-day limit\` }` if `> now + maxScheduleDays`.
-  - Returns `{ level: 'warn', text: 'Will round to 5-min mark' }` if `minutes % 5 !== 0`.
-  - Otherwise `null`.
-- `detectCookieFormat(raw: string): string | null`:
-  - `trimmed.startsWith('[')` → `'JSON cookies'`
-  - Contains `\t` with 7+ fields → `'Netscape cookies.txt'`
-  - Contains `=` → `'Cookie header'`
-  - Single non-whitespace token length ≥ 8 → `'sessionid token'`
-  - Otherwise `null`.
-
-### 5.2 `packages/desktop/src/renderer/src/components/Icons.tsx`
-Uniform `16×16` (or configurable `size` prop, default `15`) inline SVG icons with `stroke="currentColor"`, `strokeWidth="1.75"`, `strokeLinecap="round"`, `strokeLinejoin="round"`, `fill="none"`:
-- `SunIcon`, `MoonIcon`, `MonitorIcon`
-- `SettingsIcon`, `TrashIcon`, `CloseIcon`, `PlusIcon`, `FolderIcon`, `FilmIcon`
-- `CalendarIcon`, `CookieIcon` (or `KeyIcon`), `LogInIcon`, `DownloadIcon`, `EditIcon`
-- `PlayIcon`, `StopIcon`, `RefreshIcon`, `CheckIcon`, `AlertIcon`, `ChevronRightIcon`, `ChevronDownIcon`, `CopyIcon`, `UploadCloudIcon`
-
-### 5.3 `packages/desktop/src/renderer/src/components/ToggleSwitch.tsx`
-Accessible switch component (`role="switch"`, `aria-checked={checked}`) used for `Show browser`, `Run headless`, and `Default AI label`.
-
-### 5.4 `packages/desktop/src/renderer/src/components/Modal.tsx`
-Reusable modal with `title`, optional `subtitle`, `size?: 'sm' | 'md' | 'lg'`, `CloseIcon` button, Escape-to-close, backdrop-click-to-close, smooth entrance animation.
-
-### 5.5 `packages/desktop/src/renderer/src/components/ConfirmDialog.tsx`
-Styled replacement for `window.confirm()`!
-Props: `title`, `description`, `confirmLabel`, `danger?: boolean`, `busy?: boolean`, `onConfirm`, `onCancel`.
-Used when deleting an account (`Remove "${account.label}"?`) so there are ZERO native browser alert/confirm popups anywhere in the app.
-
-### 5.6 `packages/desktop/src/renderer/src/components/AccountChip.tsx`
-Displays status pill with colored status dot:
-- `Checking…` (subtle animated pulse dot)
-- `Locked by CLI` (amber)
-- `Signed in` (green)
-- `Not signed in` (muted/rose)
-
-### 5.7 `packages/desktop/src/renderer/src/components/JobRow.tsx`
-Props: `job`, `maxScheduleDays`, `onChange`, `onRemove`.
-- **Video Cell**: `36×36` `.video-thumb` icon badge (`FilmIcon`) + bold `baseName(job.videoPath)` (full path on hover tooltip) + subtle `.ext-tag` (e.g. `MP4`). **NO `job.id` rendered!**
-- **Caption Cell**: Clean textarea + bottom row with character count (`tabular-nums`), soft warning pill over 150 chars, red error over 2,200 chars.
-- **Schedule Cell**: Datetime input + inline clear `CloseIcon` button when set + formatted time OR inline `validateRowSchedule` error/warning badge.
-- **Settings Cell (Visibility + Options)**:
-  - Compact styled `<select>` for `Everyone` / `Friends` / `Private`.
-  - Below it, `.option-pills` row of 5 tactile pill toggles (`Draft`, `AI`, `Comment`, `Duet`, `Stitch`) with `aria-pressed` and `CheckIcon` when active. *(Combining Visibility + Options into one clean column or keeping them neatly aligned makes rows dramatically cleaner and easier to scan at `940px` width!)*
-- **Status & Remove Cell**:
-  - Dot-prefixed status pill (`● Pending`, `● Running`, `● Done`, `● Failed` + clickable `Screenshot` link button).
-  - Subtle `TrashIcon` button (`disabled={job.status === 'running'}`) to remove the row cleanly.
-
-### 5.8 `packages/desktop/src/renderer/src/components/ImportCookiesModal.tsx`
-Dedicated **Import Cookies from Chrome** modal (`size="lg"`):
-- **Header**: `Import Cookies from Chrome` · subtitle: `Account: ${account.label}` (label only!).
-- **2-Tab Segmented Switcher**:
-  - **Method 1: Chrome DevTools (Fastest · No Extension)**
-  - **Method 2: Chrome Extension (JSON or .txt)**
-- **Numbered Step-by-Step Instructions Card (`.steps-card`)**:
-  - **Tab 1 (Chrome DevTools)**:
-    1. Open **tiktok.com** in Google Chrome and make sure you are signed in.
-    2. Press <kbd>Cmd</kbd> + <kbd>Option</kbd> + <kbd>I</kbd> (Mac) or <kbd>F12</kbd> (Windows / Linux) to open DevTools.
-    3. Select the **Application** tab at the top (click `»` if it isn't visible).
-    4. In the left sidebar, expand **Cookies** and click **https://www.tiktok.com**.
-    5. Find the cookie named **`sessionid`**, copy its **Value**, and paste it below.
-  - **Tab 2 (Chrome Extension)**:
-    1. Install **Cookie-Editor** or **Get cookies.txt LOCALLY** from the Chrome Web Store.
-    2. While logged in to **tiktok.com**, click the extension icon in Chrome's toolbar.
-    3. Click **Export** → choose **JSON** (Cookie-Editor) or **Netscape `.txt`** (Get cookies.txt LOCALLY).
-    4. Paste the exported cookies below, **or** click **Import from File (.txt / .json)**.
-- **Paste Area**:
-  - Header label + live format detection badge (`detectCookieFormat(rawText)`).
-  - Monospace `<textarea>` for pasting `sessionid`, `Cookie:` header, JSON array, or Netscape `.txt`.
-  - Privacy note: *"Stored locally on your computer with private permissions (0600)."*
-- **Inline Feedback Alert**: Shows green verified banner or clear red error banner inside the modal.
-- **Footer**:
-  - Left: **Import from File (.txt / .json)** button (calls `window.api.auth.importCookies(account.id)`).
-  - Right: **Close** + primary **Import & Verify** button (calls `window.api.auth.importCookiesText({ accountId: account.id, text: rawText })`).
-
-### 5.9 `packages/desktop/src/renderer/src/components/AddAccountModal.tsx` (or Inline Add Form in Sidebar + Account Actions)
-- **Single input**: `Account name` (placeholder `e.g. Brand Main`, `autoFocus`).
-- **NO account ID field anywhere!**
-- Calls `window.api.accounts.add({ label: name.trim() })`, auto-selects the new account, and shows a toast (`Added "Brand Main"`).
-- Also include a clean **Rename Account** modal (single input prefilled with `account.label`, calls `window.api.accounts.label({ id: account.id, label })`).
-
-### 5.10 `packages/desktop/src/renderer/src/components/BulkModal.tsx`
-- Clean 2-column form grid with `Start`, `Every`, `Jitter (optional)`, `Quiet window (optional)`.
-- Quick preset chips under `Every`: `6h`, `12h`, `1d`, `2d`.
-- Live numbered schedule preview list with `tabular-nums`.
-
-### 5.11 `packages/desktop/src/renderer/src/components/ConfirmModal.tsx`
-- Label-only account display (`account.label` + `<AccountChip>`).
-- Clean key-value summary grid + validation alerts:
-  - Blocks `Run` with a red alert if any caption exceeds 2,200 characters.
-  - Shows amber warning if any job has an invalid schedule or empty caption, or if the account is not signed in.
-
-### 5.12 `packages/desktop/src/renderer/src/components/SettingsModal.tsx`
-- **Appearance**: 3-segment Theme selector (`Light` / `Dark` / `System`).
-- **Browser**: `Run headless` (`ToggleSwitch`), `Browser path` input.
-- **Upload Defaults**: `Schedule horizon` (`10 days` / `30 days`), `Default visibility` (`Everyone` / `Friends` / `Private`), `Default AI label` (`ToggleSwitch`).
-
-### 5.13 `packages/desktop/src/renderer/src/components/ToastStack.tsx`
-- Renders subtle auto-dismissing toasts (`3.5s` timeout) at bottom-right with colored status icon and dismiss button.
-
-### 5.14 `packages/desktop/src/renderer/src/App.tsx`
-- Wires:
-  - Theme state (`settings.theme ?? 'system'` + `matchMedia('(prefers-color-scheme: dark)')` listener → sets `document.documentElement.dataset.theme`).
-  - **Left Sidebar**:
-    - Brand header (custom red-cyan subtle mark + `TikTok Uploader`).
-    - Accounts header (`ACCOUNTS` + `+` button to add account).
-    - Account list (clickable label-only items with status dots).
-    - Selected Account quick panel (shows selected account's actions: **Sign In**, **Chrome Cookies**, **Export**, **Rename**, **Delete** — delete opens `ConfirmDialog`, never `window.confirm`).
-    - Sidebar footer: 3-segment **Light / Dark / System** theme switcher + **Settings** button.
-  - **Main Workspace**:
-    - **Workspace Header**: Selected account label (`18px` semibold) + `<AccountChip>` + quick **Import Chrome Cookies** button when not signed in + `Show browser` `ToggleSwitch` + primary **Run** / **Stop** button.
-    - **Progress Bar**: Visible when `running === true`.
-    - **Sub-toolbar**: `Add Videos`, `Add Folder`, `Bulk Schedule`, `Retry Failed` (when failed > 0), `Clear Finished` (when finished > 0), and right-aligned tabular queue stats (`N videos · N scheduled · N done · N failed`).
-    - **Queue Area**:
-      - When no accounts exist: welcoming **Onboarding Empty Card** with **Create Your First Account** CTA.
-      - When account exists & queue empty: elevated **Drag & Drop Empty Card** with `UploadCloudIcon`, **Add Videos** + **Add Folder** buttons, and a helpful *"Need to connect this account? Sign In or Import Chrome Cookies"* link bar if not signed in.
-      - When queue has items: elevated `.queue-surface` card containing the clean table of `<JobRow>`s.
-    - **Collapsible Activity Log Drawer**:
-      - Defaults to **collapsed** (`logOpen = false`) so the workspace feels spacious and calm; shows live status pill + event count + red error badge when errors occur; expands cleanly with **Clear** and **Copy** buttons.
-    - **Drag-over Overlay**: Smooth blurred dropzone card when dragging files/folders over the window.
-    - **Toast Stack** + Modals (`AddAccountModal`, `RenameAccountModal`, `ConfirmDialog`, `ImportCookiesModal`, `BulkModal`, `ConfirmModal`, `SettingsModal`).
-- **Log messages**: Always reference `account.label` and `baseName(job.videoPath)` — NEVER raw `accountId` or `jobId`.
+### E.3 All Accounts Overview Dashboard (`components/AccountsOverview.tsx`)
+Add a pinned **All Accounts** navigation button at the very top of the sidebar (above `ACCOUNTS` list):
+```text
+┌───────────────────────┐
+│ ● TikTok Uploader     │
+├───────────────────────┤
+│ ⊞ All Accounts   (6)  │   <-- clicks switch to AccountsOverview
+├───────────────────────┤
+│ ACCOUNTS          [+] │
+│ [ Filter accounts… ]  │   <-- shown when accounts.length >= 5
+│ ● Brand Main      4   │
+│ ● Clip Lab       !1   │
+│ ○ New Creator         │
+```
+Inside `AccountsOverview.tsx`:
+1. **Header**: Title `All Accounts`, plus two batch buttons:
+   - **Check All Sessions** (runs `window.api.auth.status(id)` sequentially across unlocked accounts, showing `"Checking 2 / 6…"` progress and updating `lastSignedIn` + `lastCheckedAt`).
+   - **Run All Ready** (primary button, disabled when 0 accounts have pending/failed jobs + signed-in; calls `window.api.queue.startAll({ accountIds: readyIds, headed })` with a quick confirmation showing how many accounts & total videos will run).
+2. **Summary KPI Strip** (4 compact cards):
+   - **Accounts** (`N total · M signed in`)
+   - **Pending Videos** (sum of `pendingCount` + `failedCount`)
+   - **Currently Running** (`runningAccounts.size` with live pulse dot)
+   - **Needs Attention** (accounts with `failedCount > 0` or `!signedIn`)
+3. **Overview Table** (elevated `.queue-surface` card):
+   - Columns: **Account** (color avatar initial + label + `@handle` + group pill), **Session** (`AccountChip` + relative `lastCheckedAt`), **Queue** (Pending / Scheduled / Failed / Done pills), **Next Slot** (`formatWhen(nextSchedule)`), **Actions** (`Open`, `Run`/`Stop`, `Cookies`, `Edit`).
+   - Optional group filter pills above the table if any accounts have a `group` assigned.
 
 ---
 
-## 6. Complete File Checklist
+### E.4 Smarter Multi-Account Sidebar, Drag-to-Account, Shortcuts & Cross-Posting
+1. **Live Badges & Color Avatars on Sidebar Items**:
+   - Each `.account-item` displays:
+     - Status dot (`.status-dot.running` animated pulse when running, `.locked` amber, `.ok` green, `.off` muted)
+     - Optional tiny color bar/dot if `account.color` is set
+     - `<span className="account-name">{label}</span>` (truncates cleanly!)
+     - Right-aligned compact badges: red `!{failedCount}` pill when `failedCount > 0`, muted `{pendingCount}` pill when `pendingCount > 0`.
+2. **Sidebar Search & Group Filter**:
+   - When `accounts.length >= 5`, show a compact `<input type="search" className="sidebar-search" placeholder="Filter accounts…" />` right below `ACCOUNTS` header, filtering by `label`, `handle`, or `group`.
+3. **Drag-and-Drop Directly Onto Any Sidebar Account**:
+   - Add `onDragOver`, `onDragLeave`, `onDrop` handlers on each `.account-item` (calling `e.stopPropagation()` so the global drop overlay doesn't intercept it).
+   - Highlight the hovered account row with `.account-item.drop-target` (`outline: 2px dashed var(--accent); background: var(--accent-soft);`).
+   - On drop: expand dropped files/folders (using that target account's `recursiveFolder` + `defaults`), call `window.api.queue.append({ accountId: target.id, jobs: newJobs })` (or `addItems` if it's the active account), refresh sidebar counts, and toast `Added N video(s) to "${target.label}"`!
+4. **Keyboard Shortcuts (`App.tsx` global `keydown`)**:
+   - Ignore when focus is inside `input`, `textarea`, `select`, or `[contenteditable]`, or when a modal is open.
+   - `Cmd/Ctrl + 0` → switch to **All Accounts Overview**.
+   - `Cmd/Ctrl + 1` through `Cmd/Ctrl + 9` → switch directly to the 1st–9th visible account in the sidebar.
+5. **Linked Source Folder + 1-Click Scan**:
+   - When `currentAccount.sourceFolder` is set, show a **Scan Folder** button (`FolderSyncIcon` / `RefreshIcon`) in the Queue sub-toolbar with tooltip showing the folder path.
+   - Clicking **Scan Folder** calls `window.api.videos.list(currentAccount.sourceFolder, { recursive: effectiveRecursive })`, deduplicates against ALL existing `jobs` (both Queue and Completed!), adds only brand-new videos, and shows a toast (`Added 4 new videos` or `No new videos in linked folder`).
+6. **Account Settings Modal (`components/AccountSettingsModal.tsx`)**:
+   - Replaces the basic 1-field Rename modal (opened from sidebar **Edit** button or Overview table **Edit** button):
+     - **Profile**: Account Name (`label`), Group/Tag (optional, e.g. `Clients`, `Personal`), Color accent swatch picker (6 subtle presets + None).
+     - **Linked Source Folder**: read-only path input + **Browse** (`window.api.videos.pickFolder()`) + **Clear** button, plus **Include subfolders** selector (`Inherit global` / `Yes` / `No`).
+     - **Account Defaults (Overrides Global Settings)**:
+       - Default Visibility (`Inherit` / `Everyone` / `Friends` / `Private`)
+       - Default AI Label (`Inherit` / `On` / `Off`)
+       - Schedule Horizon (`Inherit` / `10 days` / `30 days (TikTok Studio)`)
+       - Default Bulk Schedule Preset (`Every`, `Jitter`, `Quiet window` — pre-populates `BulkModal` whenever opened for this account!).
+7. **Copy to Accounts Modal (`components/CopyToAccountsModal.tsx`)**:
+   - Triggered from a subtle **Copy to accounts** icon button (`CopyPlusIcon` / `ShareIcon`) on each `JobRow` (hidden if `accounts.length < 2`).
+   - Shows checkboxes/cards for all *other* accounts (label + group + status dot), plus an option toggle:
+     - **Keep schedule** vs **Clear schedule (post now / stagger later)** (default: clear schedule so you don't accidentally collide slots across accounts).
+   - Clicking **Copy to N account(s)** calls `window.api.queue.append` for each selected account, refreshes sidebar counts, and shows a toast (`Copied to 3 accounts`).
 
-| # | File | Action | Purpose |
+---
+
+## 6. Complete File Checklist (In Implementation Order)
+
+| # | File | Action | Scope |
 |---|---|---|---|
-| 1 | `packages/core/src/types.ts` | Edit | Add `ThemeMode`, `theme?: ThemeMode` on `Settings` |
-| 2 | `packages/core/src/settings.ts` | Edit | Default `theme: 'system'` |
-| 3 | `packages/core/src/profiles.ts` | Edit | Add `generateAccountId()`, `createAccount()` |
-| 4 | `packages/core/src/cookies.ts` | Edit | Add `parseJsonCookies()`, `parseCookieHeader()`, `parseCookieInput()` |
-| 5 | `packages/core/src/uploader/auth.ts` | Edit | Fallback `cookies.txt` in `inspectAccount()`; add `applyImportedCookies()` |
-| 6 | `packages/core/src/index.ts` | Edit | Export `applyImportedCookies` |
-| 7 | `packages/core/tests/cookies.test.ts` | Edit | Unit tests for JSON, header, bare `sessionid`, auto-detect |
-| 8 | `packages/core/tests/profiles.test.ts` | Edit | Unit tests for `generateAccountId()` and `createAccount()` |
-| 9 | `packages/desktop/src/main/index.ts` | Edit | Theme-aware `nativeTheme.themeSource` and initial `backgroundColor` |
-| 10 | `packages/desktop/src/main/ipc.ts` | Edit | Label-only `accounts:add`, `auth:import-cookies-text`, `.json`/`.txt` picker, immediate verification, theme background sync, label-only messages |
-| 11 | `packages/desktop/src/preload/index.d.ts` | Edit | Sync IPC types (`ImportCookiesResult`, `accounts.add`, `auth.importCookiesText`) |
-| 12 | `packages/desktop/src/preload/index.ts` | Edit | Expose `auth.importCookiesText` & updated `accounts.add` |
-| 13 | `packages/desktop/src/renderer/index.html` | Edit | `<meta name="color-scheme" content="light dark" />` |
-| 14 | `packages/desktop/src/renderer/src/styles.css` | Rewrite | Full Light + Dark design system, sidebar + workspace shell, switches, toggle pills, elevated cards, modals, toasts, custom scrollbars |
-| 15 | `packages/desktop/src/renderer/src/utils.ts` | Create | Shared helpers, `validateRowSchedule`, `detectCookieFormat` |
-| 16 | `packages/desktop/src/renderer/src/components/Icons.tsx` | Create | Crisp 1.75px-stroke SVG icon set |
-| 17 | `packages/desktop/src/renderer/src/components/ToggleSwitch.tsx` | Create | Custom accessible pill switch |
-| 18 | `packages/desktop/src/renderer/src/components/Modal.tsx` | Create | Animated modal dialog with backdrop blur |
-| 19 | `packages/desktop/src/renderer/src/components/ConfirmDialog.tsx` | Create | Styled destructive confirmation modal (replaces `window.confirm`) |
-| 20 | `packages/desktop/src/renderer/src/components/AccountChip.tsx` | Create | Dot-prefixed auth status badge |
-| 21 | `packages/desktop/src/renderer/src/components/JobRow.tsx` | Create | Polished queue row with video badge, pill toggles, clear schedule, inline validation, remove button |
-| 22 | `packages/desktop/src/renderer/src/components/ImportCookiesModal.tsx` | Create | Guided Chrome Cookie import modal (DevTools + Extension tabs, paste + file picker) |
-| 23 | `packages/desktop/src/renderer/src/components/BulkModal.tsx` | Create | Bulk scheduler with `6h`/`12h`/`1d`/`2d` presets |
-| 24 | `packages/desktop/src/renderer/src/components/ConfirmModal.tsx` | Create | Pre-run confirmation modal with validation warnings & label-only display |
-| 25 | `packages/desktop/src/renderer/src/components/SettingsModal.tsx` | Create | Settings modal with Light/Dark/System theme switcher & toggle switches |
-| 26 | `packages/desktop/src/renderer/src/components/ToastStack.tsx` | Create | Auto-dismissing feedback toast stack |
-| 27 | `packages/desktop/src/renderer/src/App.tsx` | Rewrite | Clean top-level app composing sidebar, workspace, empty states, log drawer, toasts, and modals |
+| 1 | `packages/core/src/types.ts` | Edit | Add `restored?` on `AuthStatus`; `recursiveFolder?` & `maxConcurrentAccounts?` on `Settings`; `accountId?` on `QueueEvent`; `RemoteVideoStatus`, `TikTokVideo`, `AccountLibrary`; `AccountColor`, `AccountDefaults`, `AccountPatch`, extended `Account` & `AccountSummary` |
+| 2 | `packages/core/src/settings.ts` | Edit | Default `recursiveFolder: false`, `maxConcurrentAccounts: 2` |
+| 3 | `packages/core/src/paths.ts` | Edit | Add `libraryPath(id)` |
+| 4 | `packages/core/src/selectors.ts` | Edit | Add `PATHS.content` and `SELECTORS.library` |
+| 5 | `packages/core/src/videos.ts` | Edit | Add `{ recursive?: boolean }` support with hidden-entry skip & symlink cycle protection |
+| 6 | `packages/core/src/profiles.ts` | Edit | Add `updateAccount(id, patch)` |
+| 7 | `packages/core/src/queue.ts` | Edit | Stamp `accountId` on all emitted `QueueEvent`s |
+| 8 | `packages/core/src/uploader/auth.ts` | Edit | Return `restored: true` when `applyImportedCookies()` restores previous cookies |
+| 9 | `packages/core/src/uploader/library.ts` | Create | `loadLibrary`, `saveLibrary`, `parseCreatorApiPayload`, `syncAccountLibrary` (API interception + DOM fallback + CSP-safe base64 thumbnails) |
+| 10 | `packages/core/src/index.ts` | Edit | Export library module functions & types |
+| 11 | `packages/core/tests/videos.test.ts` | Edit | Tests for recursive vs non-recursive `listVideos`, hidden folders, symlinks |
+| 12 | `packages/core/tests/profiles.test.ts` | Edit | Tests for `updateAccount` (label, group, color, sourceFolder, defaults, clearing nulls) |
+| 13 | `packages/core/tests/library.test.ts` | Create | Tests for `parseCreatorApiPayload` & `loadLibrary`/`saveLibrary` |
+| 14 | `packages/cli/src/index.ts` | Edit | Add `-r, --recursive` flag to `upload` command |
+| 15 | `packages/desktop/src/main/index.ts` | Edit | Subscribe to `nativeTheme.on('updated', ...)` for live system background sync |
+| 16 | `packages/desktop/src/main/ipc.ts` | Edit | Fix `saveAndVerifyCookies` order/rollback; update `videos:list` recursive arg; enrich `summarize()` with live queue counts + persisted `lastSignedIn`; add `accounts:update`, `queue:append`, `queue:start-all`, `library:load`, `library:sync`, `shell:open-external` (allowlisted to `tiktok.com`); stamp `accountId` on `queue:event` |
+| 17 | `packages/desktop/src/preload/index.d.ts` | Edit | Sync all new/updated IPC types |
+| 18 | `packages/desktop/src/preload/index.ts` | Edit | Expose `accounts.update`, `videos.list(dir, opts)`, `queue.append`, `queue.startAll`, `library.load`, `library.sync`, `openExternal` |
+| 19 | `packages/desktop/src/renderer/src/components/Icons.tsx` | Edit | Add `GridIcon`, `ExternalLinkIcon`, `CopyPlusIcon`, `EyeIcon`, `HeartIcon`, `MessageIcon`, `SearchIcon`, `SlidersIcon` |
+| 20 | `packages/desktop/src/renderer/src/components/JobRow.tsx` | Edit | Fix `.schedule-input-wrap` flex layout, single caption badge, screenshot block spacing, add optional `onCopyToAccounts` button |
+| 21 | `packages/desktop/src/renderer/src/components/CompletedRow.tsx` | Create | Read-only completed history row with **Re-queue** and **Remove** |
+| 22 | `packages/desktop/src/renderer/src/components/TikTokLibraryView.tsx` | Create | Existing TikTok videos grid with search, status filters, sync button, thumbnails, metrics, Open on TikTok |
+| 23 | `packages/desktop/src/renderer/src/components/AccountsOverview.tsx` | Create | All Accounts command center with KPI strip, multi-account table, **Run All Ready**, and **Check All Sessions** |
+| 24 | `packages/desktop/src/renderer/src/components/AccountSettingsModal.tsx` | Create | Per-account editor: label, group, color, linked source folder, recursive override, default visibility/AI/horizon/bulk-schedule preset |
+| 25 | `packages/desktop/src/renderer/src/components/CopyToAccountsModal.tsx` | Create | Cross-post modal to copy a video to selected other accounts |
+| 26 | `packages/desktop/src/renderer/src/components/ImportCookiesModal.tsx` | Edit | Fix empty paste badge (`Auto-detect` instead of `Unknown format`) |
+| 27 | `packages/desktop/src/renderer/src/components/BulkModal.tsx` | Edit | Accept optional initial `defaultEvery`/`defaultJitter`/`defaultWindow` from account defaults; trim `every` on preset check |
+| 28 | `packages/desktop/src/renderer/src/components/SettingsModal.tsx` | Edit | Add `Include subfolders by default` toggle and `Max parallel accounts` (1–4) selector |
+| 29 | `packages/desktop/src/renderer/src/styles.css` | Edit | Apply all Part A CSS fixes + workspace tabs, library grid/cards/skeleton, overview KPIs/table, sidebar search/badges/drop-target/color-swatches, balanced account-actions |
+| 30 | `packages/desktop/src/renderer/src/App.tsx` | Edit | Wire review fixes, recursive toggle, 3-tab workspace (`Queue` / `Completed` / `TikTok Library`), strict bulk-schedule & run scoping, parallel `runningAccounts` Set, All Accounts Overview, drag-to-sidebar-account, `Cmd/Ctrl + 0..9` shortcuts, Scan Linked Folder, `AccountSettingsModal`, `CopyToAccountsModal` |
 
 ---
 
-## 7. Verification Protocol (Run Every Check Before Calling Done)
+## 7. Verification Protocol (Must All Pass Before Finishing)
 
 ### 7.1 Automated Checks
-Run in this exact order from the repo root:
+Run in this exact order from the repository root:
 ```bash
 npm run typecheck
 npm test
 npm run build:cli
 npm run build -w @tiktok-uploader/desktop
+rg -n "window\.confirm|window\.alert|file-id|account-id" packages/desktop/src/renderer/src
 ```
+Expected:
 - **0 TypeScript errors** across core, cli, and desktop (`tsconfig.node.json` + `tsconfig.web.json`).
-- **All tests pass** (existing 95 + new cookie & profile tests).
-- **Zero leaked IDs or native browser prompts** — verify with ripgrep:
-  ```bash
-  rg "window\.confirm|window\.alert|file-id|account-id" packages/desktop/src/renderer/src
-  ```
-  Expected output: **0 matches**.
+- **All tests pass** (existing 111 + new recursive `videos.test.ts`, `updateAccount` in `profiles.test.ts`, and `library.test.ts`).
+- Clean CLI & desktop builds.
+- **0 ripgrep matches** for banned browser popups or leaked internal IDs.
 
-### 7.2 Visual & Usability Smoke Checklist (`npm run dev:desktop`)
-- [ ] **First Impression**: Two-pane layout (sidebar + elevated workspace card), crisp SVG icons, zero raw checkboxes on video rows, smooth typography, calm collapsed log bar.
-- [ ] **Light Mode & Dark Mode**: Click `Light`, `Dark`, and `Auto` in the sidebar footer — verify crisp contrast on every text label, button, input, pill, modal, and toast in both themes. Restart app and verify zero flash of wrong background color.
-- [ ] **Label-Only Accounts**: Click `+` in sidebar → only an "Account name" field appears. Add `"Creator Main"`, rename it, confirm delete via the styled `ConfirmDialog` (no OS popup), check dropdowns/headers/logs — zero internal IDs visible anywhere.
-- [ ] **Chrome Cookie Import**: Click **Chrome Cookies** → modal opens with numbered DevTools steps and Extension steps. Paste a `sessionid` or Cookie-Editor JSON → live format pill updates; click **Import & Verify** → writes `cookies.txt`, injects into browser profile, verifies session, updates status dot to green **Signed in**, and shows a success toast.
-- [ ] **Queue Usability**: Resize window to `940×640` with zero clipped controls; add videos; toggle option pills (`Draft`, `AI`, `Comment`, `Duet`, `Stitch`); set & clear a row schedule; verify `< 20 min` inline schedule warning; delete a single row; test Bulk Schedule presets (`6h`, `12h`, `1d`, `2d`); expand and clear the Activity Log.
+### 7.2 Manual Smoke Checks (`npm run dev:desktop`)
+- [ ] **Part A Review Fixes**:
+  - Failed cookie import on a signed-in account keeps previous session, keeps green **Signed in** chip, and does NOT overwrite `cookies.txt`.
+  - Schedule `✕` button sits beside the datetime input and does not cover the calendar picker.
+  - Row trash button turns red on hover; no `--account <id>` leaks into Activity Log; long account names ellipsize cleanly; empty state buttons sit side-by-side with clickable Sign In / Chrome Cookies links.
+- [ ] **Part B Recursive Folder Upload**:
+  - Toggle **Subfolders** OFF → add a parent folder with nested subfolders → only top-level videos are imported.
+  - Toggle **Subfolders** ON → add or drag-drop the same parent folder → nested videos are discovered and added (hidden folders like `.git` skipped).
+  - Verify `tiktok-up upload -r --dry-run <folder>` discovers nested videos in CLI.
+- [ ] **Part C Queue vs. Completed Separation**:
+  - With both `pending` and `done` jobs: **Queue** tab shows only active jobs; **Completed** tab shows only `done`/`skipped`.
+  - Click **Bulk Schedule** → schedules ONLY pending/failed rows; verify `done` rows in **Completed** keep their original timestamps untouched.
+  - Click **Re-queue** on a completed video → moves it back to **Queue** as `pending`.
+- [ ] **Part D TikTok Library**:
+  - Open **TikTok Library** tab → click **Sync Videos** on a signed-in account → videos and thumbnails load cleanly (check DevTools console for 0 CSP errors!).
+  - Filter by status (`Published`, `Scheduled`, `Private`) and search captions; restart app and confirm cached library loads immediately without launching Chrome; click **Open on TikTok** to verify browser launch.
+- [ ] **Part E Multi-Account Management**:
+  - Click **All Accounts** in sidebar → verify KPI cards, per-account counts, **Check All Sessions**, and **Run All Ready**.
+  - Start Account A's queue, immediately switch to Account B → verify Account A keeps a live running indicator in the sidebar without clobbering Account B's queue view.
+  - Drag a video file directly onto a non-active account in the sidebar → queues it into that account and increments its sidebar badge.
+  - Press `Cmd/Ctrl + 0` (Overview) and `Cmd/Ctrl + 1..2` (Accounts) → switches cleanly.
+  - Open **Edit** on an account → set a color, group, linked source folder, and 30-day Studio horizon → verify **Scan Folder** imports new videos and **Copy to Accounts** copies a row to another account.

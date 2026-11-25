@@ -11,7 +11,9 @@ export const DEFAULT_SETTINGS: Settings = {
   maxScheduleDays: 10,
   visibility: 'everyone',
   aiLabel: true,
-  theme: 'system'
+  theme: 'system',
+  recursiveFolder: false,
+  maxConcurrentAccounts: 2
 }
 
 export function loadSettings(): Settings {

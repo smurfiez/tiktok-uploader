@@ -35,5 +35,6 @@ export const accountDir = (id: string): string =>
 export const browserProfileDir = (id: string): string => join(accountDir(id), 'browser-profile')
 export const cookiesPath = (id: string): string => join(accountDir(id), 'cookies.txt')
 export const queuePath = (id: string): string => join(accountDir(id), 'queue.json')
+export const libraryPath = (id: string): string => join(accountDir(id), 'library.json')
 export const lockPath = (id: string): string => join(accountDir(id), 'account.lock')
 export const failuresDir = (id: string): string => join(accountDir(id), 'failures')

@@ -275,7 +275,8 @@ export async function applyImportedCookies(
       signedIn,
       message: signedIn
         ? `Imported ${cookies.length} cookie(s) and verified sign-in`
-        : `Imported ${cookies.length} cookie(s), but TikTok did not accept the session. Make sure you are signed in to tiktok.com in Chrome and copied a valid sessionid.${restored ? ' The previous session was kept.' : ''}`
+        : `Imported ${cookies.length} cookie(s), but TikTok did not accept the session. Make sure you are signed in to tiktok.com in Chrome and copied a valid sessionid.${restored ? ' The previous session was kept.' : ''}`,
+      ...(restored ? { restored: true } : {})
     }
   } catch (error) {
     return { signedIn: false, message: (error as Error).message }

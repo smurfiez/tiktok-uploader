@@ -7,15 +7,26 @@ const PRESETS = ['6h', '12h', '1d', '2d']
 
 export interface BulkModalProps {
   count: number
+  /** Pre-fill from the account's bulk preset defaults */
+  defaultEvery?: string
+  defaultJitter?: string
+  defaultWindow?: string
   onClose: () => void
   onApply: (timestamps: string[]) => void
 }
 
-export function BulkModal({ count, onClose, onApply }: BulkModalProps) {
+export function BulkModal({
+  count,
+  defaultEvery,
+  defaultJitter,
+  defaultWindow,
+  onClose,
+  onApply
+}: BulkModalProps) {
   const [start, setStart] = useState(() => localInput(new Date(Date.now() + 60 * 60 * 1000)))
-  const [every, setEvery] = useState('12h')
-  const [jitter, setJitter] = useState('')
-  const [quiet, setQuiet] = useState('')
+  const [every, setEvery] = useState(defaultEvery?.trim() || '12h')
+  const [jitter, setJitter] = useState(defaultJitter?.trim() || '')
+  const [quiet, setQuiet] = useState(defaultWindow?.trim() || '')
   const [preview, setPreview] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
 
@@ -92,7 +103,7 @@ export function BulkModal({ count, onClose, onApply }: BulkModalProps) {
             key={preset}
             type="button"
             className="preset-chip"
-            aria-pressed={every === preset}
+            aria-pressed={every.trim() === preset}
             onClick={() => setEvery(preset)}
           >
             {preset}

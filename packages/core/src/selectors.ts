@@ -6,7 +6,8 @@
 export const PATHS = {
   main: 'https://www.tiktok.com/',
   login: 'https://www.tiktok.com/login',
-  upload: 'https://www.tiktok.com/creator-center/upload?lang=en'
+  upload: 'https://www.tiktok.com/creator-center/upload?lang=en',
+  content: 'https://www.tiktok.com/tiktokstudio/content'
 } as const
 
 /** Milliseconds, converted from the seconds in config.toml */
@@ -92,5 +93,19 @@ export const SELECTORS = {
       "//div[contains(@class, 'TimePicker__panel')]//div[@role='listbox' and @aria-label='Hours']//button[@role='option']",
     timepickerMinutes:
       "//div[contains(@class, 'TimePicker__panel')]//div[@role='listbox' and @aria-label='Minutes']//button[@role='option']"
+  },
+
+  library: {
+    apiUrlPatterns: [
+      '/api/post/item_list',
+      '/aweme/v1/creator/item/list',
+      '/tiktok/studio/api',
+      '/item_list',
+      '/item/list',
+      '/creator/item'
+    ],
+    row: '[data-e2e="post-row"], [data-e2e="video-row"], table tbody tr, [class*="video-item"], [class*="post-item"]',
+    videoLink: 'a[href*="/video/"]',
+    thumbnail: 'img[src]'
   }
 } as const

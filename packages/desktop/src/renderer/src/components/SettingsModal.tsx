@@ -24,6 +24,8 @@ export function SettingsModal({ settings, onClose, onSaved }: SettingsModalProps
   const [maxDays, setMaxDays] = useState(settings.maxScheduleDays)
   const [visibility, setVisibility] = useState<Visibility>(settings.visibility)
   const [aiLabel, setAiLabel] = useState(settings.aiLabel)
+  const [recursiveFolder, setRecursiveFolder] = useState(settings.recursiveFolder ?? false)
+  const [maxConcurrent, setMaxConcurrent] = useState(settings.maxConcurrentAccounts ?? 2)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -37,7 +39,9 @@ export function SettingsModal({ settings, onClose, onSaved }: SettingsModalProps
         browserPath: browserPath.trim(),
         maxScheduleDays: maxDays,
         visibility,
-        aiLabel
+        aiLabel,
+        recursiveFolder,
+        maxConcurrentAccounts: maxConcurrent
       }
       onSaved(await window.api.settings.set(patch))
     } catch (e) {
@@ -106,6 +110,23 @@ export function SettingsModal({ settings, onClose, onSaved }: SettingsModalProps
         <select id="set-days" value={maxDays} onChange={(e) => setMaxDays(Number(e.target.value))}>
           <option value={10}>10 days</option>
           <option value={30}>30 days</option>
+        </select>
+      </div>
+
+      <div className="field">
+        <span className="field-label">Include subfolders by default</span>
+        <ToggleSwitch checked={recursiveFolder} onChange={setRecursiveFolder} label="Include subfolders by default" />
+      </div>
+
+      <div className="field">
+        <label className="field-label" htmlFor="set-parallel">
+          Max parallel accounts
+        </label>
+        <select id="set-parallel" value={maxConcurrent} onChange={(e) => setMaxConcurrent(Number(e.target.value))}>
+          <option value={1}>1 account</option>
+          <option value={2}>2 accounts</option>
+          <option value={3}>3 accounts</option>
+          <option value={4}>4 accounts</option>
         </select>
       </div>
 

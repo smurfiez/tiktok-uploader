@@ -11,13 +11,14 @@ import {
   localToIso,
   validateRowSchedule
 } from '../utils'
-import { CheckIcon, CloseIcon, FilmIcon, TrashIcon } from './Icons'
+import { CheckIcon, CloseIcon, CopyPlusIcon, FilmIcon, TrashIcon } from './Icons'
 
 export interface JobRowProps {
   job: Job
   maxScheduleDays: number
   onChange: (patch: Partial<Job>) => void
   onRemove: () => void
+  onCopyToAccounts?: () => void
 }
 
 interface PillProps {
@@ -43,7 +44,7 @@ function Pill({ label, active, onToggle, variant, title }: PillProps) {
   )
 }
 
-export function JobRow({ job, maxScheduleDays, onChange, onRemove }: JobRowProps) {
+export function JobRow({ job, maxScheduleDays, onChange, onRemove, onCopyToAccounts }: JobRowProps) {
   const name = baseName(job.videoPath)
   const length = job.description.length
   const scheduleDisabled = job.draft || job.visibility === 'private'
@@ -79,26 +80,37 @@ export function JobRow({ job, maxScheduleDays, onChange, onRemove }: JobRowProps
           <span className="char-count">
             {length} / {length > HARD_LIMIT ? HARD_LIMIT : SOFT_LIMIT}
           </span>
-          {length > SOFT_LIMIT ? <span className="badge warn">Over preview limit</span> : null}
-          {length > HARD_LIMIT ? <span className="badge error">Over hard limit</span> : null}
+          {length > HARD_LIMIT ? (
+            <span className="badge error">Over hard limit</span>
+          ) : length > SOFT_LIMIT ? (
+            <span className="badge warn">Over preview limit</span>
+          ) : null}
         </div>
       </td>
 
       <td className="schedule-cell">
-        <input
-          type="datetime-local"
-          className="datetime-input"
-          value={isoToLocal(job.schedule)}
-          disabled={scheduleDisabled}
-          aria-label={`Schedule for ${name}`}
-          title={scheduleDisabled ? disabledReason : undefined}
-          onChange={(e) => onChange({ schedule: localToIso(e.target.value) })}
-        />
-        {job.schedule ? (
-          <button type="button" className="clear-btn" aria-label="Clear schedule" onClick={() => onChange({ schedule: null })}>
-            <CloseIcon size={12} />
-          </button>
-        ) : null}
+        <div className="schedule-input-wrap">
+          <input
+            type="datetime-local"
+            className="datetime-input"
+            value={isoToLocal(job.schedule)}
+            disabled={scheduleDisabled}
+            aria-label={`Schedule for ${name}`}
+            title={scheduleDisabled ? disabledReason : undefined}
+            onChange={(e) => onChange({ schedule: localToIso(e.target.value) })}
+          />
+          {job.schedule && !scheduleDisabled ? (
+            <button
+              type="button"
+              className="clear-btn"
+              title="Clear schedule (post now)"
+              aria-label="Clear schedule"
+              onClick={() => onChange({ schedule: null })}
+            >
+              <CloseIcon size={12} />
+            </button>
+          ) : null}
+        </div>
         <div className="hint">{scheduleDisabled ? disabledReason : formatWhen(job.schedule)}</div>
         {check ? <span className={`schedule-badge ${check.level}`}>{check.text}</span> : null}
       </td>
@@ -150,6 +162,17 @@ export function JobRow({ job, maxScheduleDays, onChange, onRemove }: JobRowProps
               </button>
             ) : null}
           </div>
+        ) : null}
+        {onCopyToAccounts ? (
+          <button
+            type="button"
+            className="btn ghost sm"
+            title="Copy to accounts"
+            aria-label="Copy to accounts"
+            onClick={onCopyToAccounts}
+          >
+            <CopyPlusIcon />
+          </button>
         ) : null}
         <button
           type="button"
