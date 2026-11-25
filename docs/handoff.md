@@ -1,8 +1,25 @@
 # Handoff Fixes — Code Review Follow-Up
 
-> **Context**: All 5 major features (Part A review fixes, recursive folder upload, Queue/Completed split, TikTok Library, and Multi-Account Overview/parallel runs) are implemented and passing `npm run typecheck`, 140 Vitest tests, `npm run build:cli`, and `npm run build -w @tiktok-uploader/desktop`.
+> **Status: applied.** All 8 fixes below are implemented in `667eb4a` (`fix(desktop): apply handoff review fixes`).
+> Verification at that commit: `npm run typecheck`, `npm test` (140/140), `npm run build:cli`, and
+> `npm run build -w @tiktok-uploader/desktop` all pass; the §3 `rg` sweep is clean.
+> The §3 manual checklist still needs a real browser/TikTok session to confirm.
 >
-> This document lists the **8 concrete bugs and polish fixes** identified in final code review, with exact file paths, line numbers, and copy-paste-ready fixes. Follow `AGENTS.md` conventions strictly (no semicolons, single quotes, 2-space indent, zero Electron in `packages/core`, sync IPC across `ipc.ts` + `preload/index.ts` + `preload/index.d.ts`).
+> **Context**: All 5 major features (Part A review fixes, recursive folder upload, Queue/Completed split, TikTok Library, and Multi-Account Overview/parallel runs) are implemented.
+> The sections below are kept as the reference record of what was fixed and why.
+
+## Applied
+
+- [x] 1.1 Library sync no longer exits on loading skeleton rows
+- [x] 1.2 Per-account `defaults.maxScheduleDays` honored by `schedule:stagger` and `runQueue`
+- [x] 1.3 `Run All Ready` queues accounts above `maxConcurrentAccounts` and drains them as slots free up
+- [x] 1.4 Unhandled `runQueue` error emits `queue-done`; renderer syncs `runningAccounts` to main
+- [x] 1.5 Stop keeps `Run` disabled and shows `Stopping…` until the in-flight upload settles
+- [x] 2.1 `AccountSettingsModal` accepts combined bulk every/jitter/quiet-window defaults
+- [x] 2.2 `signedIn`/`lastSignedIn`/`lastCheckedAt` synced on `library:sync`
+- [x] 2.3 Table layout, empty-queue Run, row actions, and fast account switching
+
+Known gap: a queued (not yet running) account has no cancel button; `queue:stop` only targets active runs.
 
 ---
 
@@ -237,7 +254,9 @@
 
 ---
 
-## 3. Verification Checklist (Run After Applying All Fixes)
+## 3. Verification Checklist
+
+The commands below already pass at `667eb4a`; re-run them after any follow-up change.
 
 ```bash
 npm run typecheck
