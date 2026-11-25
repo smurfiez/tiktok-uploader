@@ -495,10 +495,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle('library:load', (_event, accountId: string) => loadLibrary(accountId))
 
-  ipcMain.handle('library:sync', async (_event, accountId: string) => {
+  ipcMain.handle('library:sync', async (_event, input: { accountId: string; maxItems?: number }) => {
+    const accountId = input.accountId
     const result = await syncAccountLibrary(accountId, {
       browserPath: loadSettings().browserPath,
-      source: 'desktop'
+      source: 'desktop',
+      maxItems: input.maxItems
     })
     if (result.ok) {
       signedIn.set(accountId, true)

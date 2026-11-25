@@ -20,14 +20,14 @@ import { sleep } from '../utils'
 import { assertSignedIn, AuthError, ensureAuthenticated } from './auth'
 import { launchContext } from './browser'
 
-export interface RawLibraryItem extends Omit<TikTokVideo, 'thumbnailDataUrl'> {
-  coverUrl?: string
-}
+export interface RawLibraryItem extends TikTokVideo {}
 
 export interface SyncLibraryResult {
   ok: boolean
   library?: AccountLibrary
   locked?: boolean
+  /** More videos exist on TikTok beyond what this sync fetched. */
+  hasMore?: boolean
   message: string
 }
 
@@ -258,13 +258,12 @@ const matchesLibraryApi = (url: string): boolean =>
 export const isBlockedPage = (title: string, body: string): boolean =>
   /access denied|you don't have permission to access/i.test(`${title} ${body}`)
 
-const stripCover = ({ coverUrl: _cover, ...item }: RawLibraryItem): TikTokVideo => item
-
 export async function syncAccountLibrary(
   accountId: string,
   options: { browserPath?: string; source?: string; maxItems?: number } = {}
 ): Promise<SyncLibraryResult> {
-  const maxItems = options.maxItems ?? 40
+  // Studio's first item_list page asks for size=50; keep it whole
+  const maxItems = options.maxItems ?? 50
 
   try {
     acquireLock(accountId, options.source ?? 'library-sync')
@@ -292,6 +291,30 @@ export async function syncAccountLibrary(
   /** API rows carry no author, so link them to the account's known handle. */
   const knownHandle = listAccounts().find((account) => account.id === accountId)?.handle
   let handle: string | undefined
+  let nextCursor: number | undefined
+  let hasMorePages = false
+  let listRequest: { url: string; body: string } | undefined
+
+  const ingest = (payload: unknown): void => {
+    const parsed = parseCreatorApiPayload(payload)
+    handle ??= parsed.handle
+
+    const record = payload as Record<string, unknown> | null
+    if (record && Array.isArray(record.item_list)) {
+      if (typeof record.cursor === 'number') nextCursor = record.cursor
+      hasMorePages = record.has_more === true
+    }
+
+    for (const item of parsed.items) {
+      if (captured.has(item.id)) continue
+      captured.set(
+        item.id,
+        item.url === PATHS.content && knownHandle
+          ? { ...item, url: `https://www.tiktok.com/@${knownHandle}/video/${item.id}` }
+          : item
+      )
+    }
+  }
 
   const collect = async (response: Response): Promise<void> => {
     try {
@@ -300,17 +323,7 @@ export async function syncAccountLibrary(
       if (!matchesLibraryApi(url)) return
       if (!(response.headers()['content-type'] ?? '').includes('json')) return
 
-      const parsed = parseCreatorApiPayload(await response.json())
-      handle ??= parsed.handle
-      for (const item of parsed.items) {
-        if (captured.has(item.id)) continue
-        captured.set(
-          item.id,
-          item.url === PATHS.content && knownHandle
-            ? { ...item, url: `https://www.tiktok.com/@${knownHandle}/video/${item.id}` }
-            : item
-        )
-      }
+      ingest(await response.json())
     } catch {
       // a malformed or already-consumed response is not fatal
     }
@@ -319,6 +332,12 @@ export async function syncAccountLibrary(
   try {
     await ensureAuthenticated({ context, page, accountId, report: () => {} })
     page.on('response', (response) => void collect(response))
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && matchesLibraryApi(request.url())) {
+        const body = request.postData()
+        if (body) listRequest = { url: request.url(), body }
+      }
+    })
 
     await page.goto(PATHS.content, { waitUntil: 'domcontentloaded' })
 
@@ -416,31 +435,21 @@ export async function syncAccountLibrary(
       }
     }
 
-    const selected = [...captured.values()].slice(0, maxItems)
-    const items: TikTokVideo[] = []
-    for (let index = 0; index < selected.length; index += 5) {
-      const batch = selected.slice(index, index + 5)
-      const settled = await Promise.allSettled(
-        batch.map(async (item): Promise<TikTokVideo> => {
-          const { coverUrl, ...rest } = item
-          if (!coverUrl?.startsWith('https://')) return rest
-
-          const response = await context.request.get(coverUrl, { timeout: 5_000 })
-          if (!response.ok()) return rest
-
-          const body = await response.body()
-          // 260 KB keeps library.json small enough to load instantly
-          if (body.byteLength === 0 || body.byteLength > 260_000) return rest
-
-          const mime = (response.headers()['content-type'] ?? 'image/jpeg').split(';')[0]
-          return { ...rest, thumbnailDataUrl: `data:${mime};base64,${body.toString('base64')}` }
-        })
-      )
-
-      settled.forEach((result, position) => {
-        items.push(result.status === 'fulfilled' ? result.value : stripCover(batch[position]))
-      })
+    // "Load more": page the item_list endpoint until maxItems is reached
+    let pages = 0
+    while (hasMorePages && captured.size < maxItems && listRequest && pages < 10) {
+      const body = JSON.parse(listRequest.body) as Record<string, unknown>
+      body.cursor = nextCursor
+      const response = await context.request.post(listRequest.url, { data: body }).catch(() => null)
+      pages++
+      if (!response?.ok()) break
+      const before = captured.size
+      ingest(await response.json().catch(() => null))
+      if (captured.size === before) break
     }
+
+    const selected = [...captured.values()].slice(0, maxItems)
+    const items: TikTokVideo[] = selected
 
     const savedHandle = handle ?? knownHandle
     const library: AccountLibrary = {
@@ -456,10 +465,12 @@ export async function syncAccountLibrary(
       lastCheckedAt: new Date().toISOString()
     })
 
+    const more = hasMorePages || captured.size > items.length
     return {
       ok: true,
       library,
-      message: `Synced ${items.length} video${items.length === 1 ? '' : 's'} from TikTok`
+      hasMore: more,
+      message: `Synced ${items.length} video${items.length === 1 ? '' : 's'} from TikTok${more ? ' — more available' : ''}`
     }
   } catch (error) {
     if (error instanceof AuthError) return { ok: false, message: error.message }

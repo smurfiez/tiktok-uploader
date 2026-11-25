@@ -92,6 +92,7 @@ export default function App() {
   const [library, setLibrary] = useState<AccountLibrary | null>(null)
   const [libraryFor, setLibraryFor] = useState('')
   const [syncing, setSyncing] = useState(false)
+  const [libraryHasMore, setLibraryHasMore] = useState(false)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const toastTimers = useRef<number[]>([])
   const logRef = useRef<HTMLDivElement>(null)
@@ -803,15 +804,16 @@ export default function App() {
     }
   }
 
-  async function syncLibrary() {
+  async function syncLibrary(maxItems?: number) {
     if (!currentAccount || syncing) return
     const id = currentAccount.id
     setSyncing(true)
     try {
-      const result = await window.api.library.sync(id)
+      const result = await window.api.library.sync(id, maxItems)
       if (result.library) {
         setLibrary(result.library)
         setLibraryFor(id)
+        setLibraryHasMore(Boolean(result.hasMore))
       }
       addLog(`${labelOf(id)}: ${result.message}`, result.ok ? 'info' : 'error')
       pushToast(result.message, result.ok ? 'ok' : result.locked ? 'info' : 'error')
@@ -1520,6 +1522,10 @@ export default function App() {
                 library={libraryFor === accountId ? library : null}
                 syncing={syncing}
                 onSync={() => void syncLibrary()}
+                hasMore={libraryFor === accountId && libraryHasMore}
+                onLoadMore={() =>
+                  void syncLibrary(((libraryFor === accountId ? library?.items.length : 0) ?? 0) + 50)
+                }
                 onSignIn={() => void signIn()}
                 onImportCookies={() => openImport(currentAccount)}
               />

@@ -121,7 +121,9 @@ export type RemoteVideoStatus = 'published' | 'scheduled' | 'draft' | 'private' 
 export interface TikTokVideo {
   id: string
   caption: string
-  /** Base64 data URI fetched in Playwright so renderer CSP stays `img-src 'self' data:` */
+  /** Remote poster URL (TikTok's CDN). */
+  coverUrl?: string
+  /** Legacy inline poster from caches written before covers were URLs. */
   thumbnailDataUrl?: string
   url: string
   status: RemoteVideoStatus

@@ -74,7 +74,9 @@ export interface TikTokLibraryViewProps {
   account: AccountSummary
   library: AccountLibrary | null
   syncing: boolean
+  hasMore?: boolean
   onSync: () => void
+  onLoadMore?: () => void
   onSignIn: () => void
   onImportCookies: () => void
 }
@@ -83,7 +85,9 @@ export function TikTokLibraryView({
   account,
   library,
   syncing,
+  hasMore,
   onSync,
+  onLoadMore,
   onSignIn,
   onImportCookies
 }: TikTokLibraryViewProps) {
@@ -156,8 +160,8 @@ export function TikTokLibraryView({
         {filtered.map((item) => (
           <article key={item.id} className="library-card">
             <div className="library-poster">
-              {item.thumbnailDataUrl ? (
-                <img src={item.thumbnailDataUrl} alt="" />
+              {item.coverUrl || item.thumbnailDataUrl ? (
+                <img src={item.coverUrl ?? item.thumbnailDataUrl} alt="" loading="lazy" />
               ) : (
                 <FilmIcon size={28} />
               )}
@@ -251,6 +255,16 @@ export function TikTokLibraryView({
           <RefreshIcon />
           {syncing ? 'Syncing…' : 'Sync Videos'}
         </button>
+        {hasMore ? (
+          <button
+            type="button"
+            className="btn"
+            disabled={syncing || account.locked}
+            onClick={onLoadMore}
+          >
+            Load more
+          </button>
+        ) : null}
       </div>
       {body}
     </div>

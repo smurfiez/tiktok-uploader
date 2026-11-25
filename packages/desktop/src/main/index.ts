@@ -14,7 +14,7 @@ const iconPath = join(__dirname, '../../build/icon.png')
 const LIGHT_BG = '#f5f6f8'
 const DARK_BG = '#0f1014'
 const CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.tiktok.com https://*.tiktokcdn.com https://*.tiktokcdn-us.com https://*.ttwstatic.com https://*.tiktokv.com; connect-src 'self'"
 
 let window: BrowserWindow | null = null
 

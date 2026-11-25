@@ -56,7 +56,8 @@ const api: TiktokApi = {
   },
   library: {
     load: (accountId: string) => ipcRenderer.invoke('library:load', accountId),
-    sync: (accountId: string) => ipcRenderer.invoke('library:sync', accountId)
+    sync: (accountId: string, maxItems?: number) =>
+      ipcRenderer.invoke('library:sync', { accountId, maxItems })
   },
   events: {
     onQueue: (callback: (event: QueueEvent) => void) => {

@@ -56,7 +56,7 @@ export interface TiktokApi {
   }
   library: {
     load(accountId: string): Promise<AccountLibrary | null>
-    sync(accountId: string): Promise<SyncLibraryResult>
+    sync(accountId: string, maxItems?: number): Promise<SyncLibraryResult>
   }
   events: {
     onQueue(callback: (event: QueueEvent) => void): () => void
