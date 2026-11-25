@@ -8,11 +8,11 @@
  */
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import type { Response } from 'playwright-core'
 
-import { browserProfileDir, libraryPath } from '../paths'
+import { browserProfileDir, coversDir, libraryPath } from '../paths'
 import { acquireLock, listAccounts, LockBusyError, releaseLock, updateAccount } from '../profiles'
 import { PATHS, SELECTORS } from '../selectors'
 import type { AccountLibrary, RemoteVideoStatus, TikTokVideo, Visibility } from '../types'
@@ -450,6 +450,23 @@ export async function syncAccountLibrary(
 
     const selected = [...captured.values()].slice(0, maxItems)
     const items: TikTokVideo[] = selected
+
+    // TikTok's CDN rejects requests without the browser session, so cache the
+    // posters locally; the desktop serves them over tt-cover://
+    const covers = coversDir(accountId)
+    mkdirSync(covers, { recursive: true, mode: 0o700 })
+    for (let index = 0; index < selected.length; index += 5) {
+      await Promise.allSettled(
+        selected.slice(index, index + 5).map(async (item) => {
+          if (!item.coverUrl?.startsWith('https://')) return
+          const response = await context.request.get(item.coverUrl, { timeout: 5_000 }).catch(() => null)
+          if (!response?.ok()) return
+          const body = await response.body()
+          if (body.byteLength === 0 || body.byteLength > 260_000) return
+          writeFileSync(join(covers, `${item.id}.jpg`), body)
+        })
+      )
+    }
 
     const savedHandle = handle ?? knownHandle
     const library: AccountLibrary = {

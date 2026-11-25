@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
-import { app, BrowserWindow, nativeTheme, session } from 'electron'
+import { app, BrowserWindow, nativeTheme, net, protocol, session } from 'electron'
 
-import { loadSettings } from '@tiktok-uploader/core'
+import { coversDir, loadSettings } from '@tiktok-uploader/core'
 
 import type { ThemeMode } from '@tiktok-uploader/core'
 
@@ -14,7 +15,7 @@ const iconPath = join(__dirname, '../../build/icon.png')
 const LIGHT_BG = '#f5f6f8'
 const DARK_BG = '#0f1014'
 const CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.tiktok.com https://*.tiktokcdn.com https://*.tiktokcdn-us.com https://*.ttwstatic.com https://*.tiktokv.com; connect-src 'self'"
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: tt-cover:; connect-src 'self'"
 
 let window: BrowserWindow | null = null
 
@@ -44,8 +45,7 @@ function isAllowedTarget(raw: string): boolean {
   }
 }
 
-function applyCsp(): void {
-  if (rendererUrl) return // the dev server needs its own http/ws origins
+function applyCsp(): void {  if (rendererUrl) return // the dev server needs its own http/ws origins
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
@@ -105,6 +105,14 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     nativeTheme.themeSource = loadSettings().theme ?? 'system'
     if (process.platform === 'darwin' && existsSync(iconPath)) app.dock?.setIcon(iconPath)
+    // Posters are cached by sync; TikTok's CDN rejects requests without the browser session
+    protocol.handle('tt-cover', (request) => {
+      const [, accountId, id] = new URL(request.url).pathname.split('/')
+      if (!/^[a-zA-Z0-9._-]+$/.test(accountId ?? '') || !/^\d+$/.test(id ?? '')) {
+        return new Response('Bad cover request', { status: 400 })
+      }
+      return net.fetch(pathToFileURL(join(coversDir(accountId), `${id}.jpg`)).toString())
+    })
     applyCsp()
     registerIpc(() => window)
     window = createWindow()

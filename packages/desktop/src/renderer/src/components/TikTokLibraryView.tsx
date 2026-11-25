@@ -14,6 +14,13 @@ import {
 
 const STUDIO_URL = 'https://www.tiktok.com/tiktokstudio/content'
 
+/** Covers are cached at sync time; TikTok's CDN 403s without the browser session. */
+function Poster({ src }: { src?: string }) {
+  const [failed, setFailed] = useState(false)
+  if (!src || failed) return <FilmIcon size={28} />
+  return <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} />
+}
+
 const STATUS_LABEL: Record<RemoteVideoStatus, string> = {
   published: 'Published',
   scheduled: 'Scheduled',
@@ -160,11 +167,9 @@ export function TikTokLibraryView({
         {filtered.map((item) => (
           <article key={item.id} className="library-card">
             <div className="library-poster">
-              {item.coverUrl || item.thumbnailDataUrl ? (
-                <img src={item.coverUrl ?? item.thumbnailDataUrl} alt="" loading="lazy" />
-              ) : (
-                <FilmIcon size={28} />
-              )}
+              <Poster
+                src={item.thumbnailDataUrl ?? `tt-cover://cover/${account.id}/${item.id}`}
+              />
               <span className={`status-pill ${item.status}`}>{STATUS_LABEL[item.status]}</span>
               {item.durationSec && item.durationSec > 0 ? (
                 <span className="duration-chip">{duration(item.durationSec)}</span>

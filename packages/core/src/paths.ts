@@ -38,3 +38,4 @@ export const queuePath = (id: string): string => join(accountDir(id), 'queue.jso
 export const libraryPath = (id: string): string => join(accountDir(id), 'library.json')
 export const lockPath = (id: string): string => join(accountDir(id), 'account.lock')
 export const failuresDir = (id: string): string => join(accountDir(id), 'failures')
+export const coversDir = (id: string): string => join(accountDir(id), 'covers')
