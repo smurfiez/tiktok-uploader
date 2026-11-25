@@ -13,7 +13,7 @@ const api: TiktokApi = {
   },
   accounts: {
     list: () => ipcRenderer.invoke('accounts:list'),
-    add: (input: { id: string; label: string }) => ipcRenderer.invoke('accounts:add', input),
+    add: (input: { id?: string; label: string }) => ipcRenderer.invoke('accounts:add', input),
     label: (input: { id: string; label: string }) => ipcRenderer.invoke('accounts:label', input),
     remove: (accountId: string) => ipcRenderer.invoke('accounts:remove', accountId)
   },
@@ -21,6 +21,8 @@ const api: TiktokApi = {
     status: (accountId: string) => ipcRenderer.invoke('auth:status', accountId),
     login: (accountId: string) => ipcRenderer.invoke('auth:login', accountId),
     importCookies: (accountId: string) => ipcRenderer.invoke('auth:import-cookies', accountId),
+    importCookiesText: (input: { accountId: string; text: string }) =>
+      ipcRenderer.invoke('auth:import-cookies-text', input),
     exportCookies: (accountId: string) => ipcRenderer.invoke('auth:export-cookies', accountId)
   },
   videos: {

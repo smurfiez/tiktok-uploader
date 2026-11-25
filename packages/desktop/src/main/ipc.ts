@@ -7,13 +7,15 @@ import { chmodSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import { BrowserWindow, dialog, ipcMain, powerSaveBlocker, shell } from 'electron'
+import { BrowserWindow, dialog, ipcMain, nativeTheme, powerSaveBlocker, shell } from 'electron'
 
 import {
   addAccount,
+  applyImportedCookies,
   assertSchedulable,
   buildStaggeredSchedule,
   cookiesPath,
+  createAccount,
   exportCookies,
   inspectAccount,
   listAccounts,
@@ -22,12 +24,13 @@ import {
   loadSettings,
   lockStatus,
   loginInteractive,
-  parseNetscape,
+  parseCookieInput,
   removeAccount,
   runQueue,
   saveQueue,
   saveSettings,
   serializeNetscape,
+  sessionIdOf,
   setAccountLabel,
   SUPPORTED_VIDEO_TYPES
 } from '@tiktok-uploader/core'
@@ -50,6 +53,17 @@ const activeRuns = new Map<string, ActiveRun>()
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
+
+/** User-facing messages say the label; the internal id never leaves this module. */
+const accountLabel = (accountId: string): string =>
+  listAccounts().find((account) => account.id === accountId)?.label ?? 'Account'
+
+/** Filename-safe form of a label, for the export dialog default. */
+const slugOfLabel = (label: string): string =>
+  label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'account'
 
 /** `accounts:list` must not launch a browser, so status comes from this cache. */
 const summarize = (account: Account): AccountSummary => {
@@ -77,13 +91,70 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return window ? dialog.showSaveDialog(window, options) : dialog.showSaveDialog(options)
   }
 
+  /** Write imported cookies to the account profile, then verify them for real. */
+  async function saveAndVerifyCookies(
+    accountId: string,
+    rawText: string
+  ): Promise<{ ok: boolean; signedIn: boolean; count: number; message: string }> {
+    const cookies = parseCookieInput(rawText)
+    if (cookies.length === 0) {
+      return {
+        ok: false,
+        signedIn: false,
+        count: 0,
+        message:
+          'No valid cookies detected. Paste your sessionid from Chrome DevTools, or a JSON / Netscape export.'
+      }
+    }
+    if (!sessionIdOf(cookies)) {
+      return {
+        ok: false,
+        signedIn: false,
+        count: cookies.length,
+        message:
+          'No "sessionid" cookie found. Make sure you are logged in to tiktok.com in Chrome before exporting.'
+      }
+    }
+
+    const target = cookiesPath(accountId)
+    await mkdir(dirname(target), { recursive: true, mode: 0o700 })
+    await writeFile(target, serializeNetscape(cookies), { encoding: 'utf8', mode: 0o600 })
+    if (process.platform !== 'win32') chmodSync(target, 0o600)
+
+    const status = await applyImportedCookies(accountId, cookies, {
+      browserPath: loadSettings().browserPath,
+      source: 'desktop'
+    })
+    signedIn.set(accountId, status.signedIn)
+    return {
+      ok: status.signedIn,
+      signedIn: status.signedIn,
+      count: cookies.length,
+      message: status.message
+    }
+  }
+
   ipcMain.handle('settings:get', () => loadSettings())
-  ipcMain.handle('settings:set', (_event, patch: Partial<Settings>) => saveSettings(patch))
+  ipcMain.handle('settings:set', (_event, patch: Partial<Settings>) => {
+    const next = saveSettings(patch)
+    if (patch.theme) {
+      nativeTheme.themeSource = next.theme ?? 'system'
+      const win = getWindow()
+      if (win && !win.isDestroyed()) {
+        const dark =
+          next.theme === 'dark' || (next.theme !== 'light' && nativeTheme.shouldUseDarkColors)
+        win.setBackgroundColor(dark ? '#0f1014' : '#f5f6f8')
+      }
+    }
+    return next
+  })
 
   ipcMain.handle('accounts:list', () => listAccounts().map(summarize))
 
-  ipcMain.handle('accounts:add', (_event, input: { id: string; label: string }) => {
-    const account = addAccount(input.id, input.label)
+  ipcMain.handle('accounts:add', (_event, input: { id?: string; label: string }) => {
+    const account = input.id?.trim()
+      ? addAccount(input.id.trim(), input.label)
+      : createAccount(input.label)
     signedIn.set(account.id, signedIn.get(account.id) ?? false)
     return summarize(account)
   })
@@ -131,26 +202,28 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('auth:import-cookies', async (_event, accountId: string) => {
     try {
       const picked = await showOpen({
-        title: 'Import cookies.txt',
+        title: 'Import Chrome cookies (.txt or .json)',
         properties: ['openFile'],
-        filters: [{ name: 'Cookies', extensions: ['txt'] }]
+        filters: [{ name: 'Cookie files', extensions: ['txt', 'json'] }]
       })
       const file = picked.filePaths[0]
-      if (picked.canceled || !file) return { ok: false, message: 'Cancelled' }
-
-      const cookies = parseNetscape(await readFile(file, 'utf8'))
-      if (cookies.length === 0) return { ok: false, message: 'No cookies found in that file' }
-
-      const target = cookiesPath(accountId)
-      await mkdir(dirname(target), { recursive: true, mode: 0o700 })
-      await writeFile(target, serializeNetscape(cookies), { encoding: 'utf8', mode: 0o600 })
-      if (process.platform !== 'win32') chmodSync(target, 0o600)
-
-      return { ok: true, message: `Imported ${cookies.length} cookies into "${accountId}"` }
+      if (picked.canceled || !file) return { ok: false, canceled: true, message: 'Cancelled' }
+      return await saveAndVerifyCookies(accountId, await readFile(file, 'utf8'))
     } catch (error) {
       return { ok: false, message: `Cookie import failed: ${errorMessage(error)}` }
     }
   })
+
+  ipcMain.handle(
+    'auth:import-cookies-text',
+    async (_event, input: { accountId: string; text: string }) => {
+      try {
+        return await saveAndVerifyCookies(input.accountId, input.text)
+      } catch (error) {
+        return { ok: false, message: `Cookie import failed: ${errorMessage(error)}` }
+      }
+    }
+  )
 
   ipcMain.handle('auth:export-cookies', async (_event, accountId: string) => {
     try {
@@ -159,7 +232,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
       const saved = await showSave({
         title: 'Export cookies.txt',
-        defaultPath: `cookies-${accountId}.txt`,
+        defaultPath: `cookies-${slugOfLabel(accountLabel(accountId))}.txt`,
         filters: [{ name: 'Cookies', extensions: ['txt'] }]
       })
       if (saved.canceled || !saved.filePath) return { ok: false }
@@ -215,12 +288,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       const { accountId, jobs, headed } = input
 
       if (activeRuns.has(accountId)) {
-        return { started: false, error: `A run is already active for "${accountId}"` }
+        return { started: false, error: `A run is already active for "${accountLabel(accountId)}"` }
       }
 
       const lock = lockStatus(accountId)
       if (lock) {
-        const text = `Account "${accountId}" is locked by ${lock.source} (pid ${lock.pid})`
+        const text = `Account "${accountLabel(accountId)}" is locked by ${lock.source} (pid ${lock.pid})`
         send(event.sender, { type: 'log', message: text })
         return { started: false, error: text }
       }
@@ -250,7 +323,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           if (result.lockBusy) {
             send(event.sender, {
               type: 'log',
-              message: `Account "${accountId}" is locked by another process`
+              message: `Account "${accountLabel(accountId)}" is locked by another process`
             })
           }
         })

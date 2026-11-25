@@ -19,6 +19,7 @@ export {
   loginInteractive,
   exportCookies,
   inspectAccount,
+  applyImportedCookies,
   LockBusyError
 } from './uploader/auth'
 export { BrowserNotFoundError, launchContext } from './uploader/browser'

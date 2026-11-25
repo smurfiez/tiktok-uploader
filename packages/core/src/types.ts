@@ -1,5 +1,7 @@
 export type Visibility = 'everyone' | 'friends' | 'private'
 
+export type ThemeMode = 'system' | 'light' | 'dark'
+
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
 
 export interface Account {
@@ -55,6 +57,7 @@ export interface Settings {
   maxScheduleDays: number
   visibility: Visibility
   aiLabel: boolean
+  theme?: ThemeMode
 }
 
 export interface AuthStatus {

@@ -8,6 +8,8 @@ import { assertAccountId, lockPath } from '../src/paths'
 import {
   acquireLock,
   addAccount,
+  createAccount,
+  generateAccountId,
   getAccount,
   listAccounts,
   LockBusyError,
@@ -71,6 +73,43 @@ describe('accounts', () => {
     acquireLock('main', 'test')
     removeAccount('main')
     expect(readLock('main')).toBeNull()
+  })
+})
+
+describe('generateAccountId', () => {
+  it('slugifies a label', () => {
+    expect(generateAccountId('Brand Main!', [])).toBe('brand-main')
+    expect(generateAccountId('  Brand  Main  ', [])).toBe('brand-main')
+  })
+
+  it('suffixes a colliding slug', () => {
+    expect(generateAccountId('brand-main', ['brand-main'])).toBe('brand-main-2')
+    expect(generateAccountId('brand-main', ['brand-main', 'brand-main-2'])).toBe('brand-main-3')
+  })
+
+  it('falls back to "account" for a non-ASCII label', () => {
+    expect(generateAccountId('🚀', [])).toBe('account')
+    expect(generateAccountId('🚀', ['account'])).toBe('account-2')
+  })
+
+  it('always produces an id that assertAccountId accepts', () => {
+    const id = generateAccountId('  日本語 '.repeat(20), [])
+    expect(() => assertAccountId(id)).not.toThrow()
+  })
+})
+
+describe('createAccount', () => {
+  it('creates an account from a label and avoids collisions', () => {
+    const first = createAccount('Brand Main!')
+    expect(first).toMatchObject({ id: 'brand-main', label: 'Brand Main!' })
+
+    const second = createAccount('Brand Main!')
+    expect(second.id).toBe('brand-main-2')
+    expect(listAccounts().map((account) => account.id)).toEqual(['brand-main', 'brand-main-2'])
+  })
+
+  it('throws for a blank label', () => {
+    expect(() => createAccount('   ')).toThrow('Account name is required')
   })
 })
 

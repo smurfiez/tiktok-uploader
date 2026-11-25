@@ -1,15 +1,26 @@
 import { join } from 'node:path'
 
-import { app, BrowserWindow, session } from 'electron'
+import { app, BrowserWindow, nativeTheme, session } from 'electron'
+
+import { loadSettings } from '@tiktok-uploader/core'
+
+import type { ThemeMode } from '@tiktok-uploader/core'
 
 import { dispose, registerIpc } from './ipc'
 
 const rendererUrl = process.env.ELECTRON_RENDERER_URL
-const BACKGROUND = '#111014'
+const LIGHT_BG = '#f5f6f8'
+const DARK_BG = '#0f1014'
 const CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
 
 let window: BrowserWindow | null = null
+
+function resolveBg(theme?: ThemeMode): string {
+  if (theme === 'light') return LIGHT_BG
+  if (theme === 'dark') return DARK_BG
+  return nativeTheme.shouldUseDarkColors ? DARK_BG : LIGHT_BG
+}
 
 /** Only TikTok itself and the electron-vite dev server may be navigated to. */
 function isAllowedTarget(raw: string): boolean {
@@ -46,11 +57,11 @@ function applyCsp(): void {
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1200,
+    width: 1240,
     height: 820,
     minWidth: 940,
     minHeight: 640,
-    backgroundColor: BACKGROUND,
+    backgroundColor: resolveBg(loadSettings().theme),
     show: false,
     title: 'TikTok Uploader',
     webPreferences: {
@@ -89,6 +100,7 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.whenReady().then(() => {
+    nativeTheme.themeSource = loadSettings().theme ?? 'system'
     applyCsp()
     registerIpc(() => window)
     window = createWindow()

@@ -8,6 +8,14 @@ import type {
   VideoItem
 } from '@tiktok-uploader/core'
 
+export interface ImportCookiesResult {
+  ok: boolean
+  signedIn?: boolean
+  canceled?: boolean
+  count?: number
+  message: string
+}
+
 export interface TiktokApi {
   settings: {
     get(): Promise<Settings>
@@ -15,14 +23,15 @@ export interface TiktokApi {
   }
   accounts: {
     list(): Promise<AccountSummary[]>
-    add(input: { id: string; label: string }): Promise<AccountSummary>
+    add(input: { id?: string; label: string }): Promise<AccountSummary>
     label(input: { id: string; label: string }): Promise<AccountSummary>
     remove(accountId: string): Promise<{ ok: boolean }>
   }
   auth: {
     status(accountId: string): Promise<AuthStatus>
     login(accountId: string): Promise<{ ok: boolean; message: string }>
-    importCookies(accountId: string): Promise<{ ok: boolean; message: string }>
+    importCookies(accountId: string): Promise<ImportCookiesResult>
+    importCookiesText(input: { accountId: string; text: string }): Promise<ImportCookiesResult>
     exportCookies(accountId: string): Promise<{ ok: boolean; path?: string }>
   }
   videos: {

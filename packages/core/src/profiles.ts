@@ -46,6 +46,38 @@ export function addAccount(id: string, label?: string): Account {
   return account
 }
 
+/**
+ * Builds a filesystem-safe, unique internal account id from a display label.
+ * Always satisfies assertAccountId (/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/).
+ */
+export function generateAccountId(label: string, existingIds: Iterable<string>): string {
+  const taken = new Set(existingIds)
+  const slug = label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+
+  const base = slug && /^[a-z0-9]/.test(slug) ? slug : 'account'
+  if (!taken.has(base)) return base
+
+  for (let i = 2; i < 10_000; i++) {
+    const candidate = `${base}-${i}`
+    if (!taken.has(candidate)) return candidate
+  }
+  return `${base}-${Date.now().toString(36)}`
+}
+
+/** Creates a new account from a user-facing label, auto-generating its internal id. */
+export function createAccount(label: string): Account {
+  const clean = label.trim()
+  if (!clean) throw new Error('Account name is required')
+  const existing = listAccounts().map((account) => account.id)
+  const id = generateAccountId(clean, existing)
+  return addAccount(id, clean)
+}
+
 /** Only the display label changes; the id names the profile directory and stays fixed. */
 export function setAccountLabel(id: string, label: string): Account {
   const accounts = listAccounts()

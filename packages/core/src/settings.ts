@@ -10,7 +10,8 @@ export const DEFAULT_SETTINGS: Settings = {
   browserPath: '',
   maxScheduleDays: 10,
   visibility: 'everyone',
-  aiLabel: true
+  aiLabel: true,
+  theme: 'system'
 }
 
 export function loadSettings(): Settings {

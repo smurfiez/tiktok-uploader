@@ -199,12 +199,83 @@ export async function inspectAccount(
     return { signedIn: false, message: (error as Error).message }
   }
 
-  const { page, close } = launched
+  const { page, context, close } = launched
   try {
-    const signedIn = await checkSession(page)
+    let signedIn = await checkSession(page)
+    if (!signedIn) {
+      const fallback = cookiesPath(accountId)
+      if (existsSync(fallback)) {
+        const cookies = parseNetscape(await readFile(fallback, 'utf8'))
+        if (cookies.length > 0) {
+          await context.addCookies(toPlaywrightCookies(cookies) as unknown as Cookie[])
+          signedIn = await checkSession(page)
+        }
+      }
+    }
     return {
       signedIn,
       message: signedIn ? 'Signed in' : `Not signed in. Run: tiktok-up login --account ${accountId}`
+    }
+  } catch (error) {
+    return { signedIn: false, message: (error as Error).message }
+  } finally {
+    releaseLock(accountId)
+    await closeBrowser(close)
+  }
+}
+
+/**
+ * Replaces cookies in the account's persistent browser profile with imported cookies
+ * and verifies immediately whether TikTok recognizes the session.
+ */
+export async function applyImportedCookies(
+  accountId: string,
+  cookies: StoredCookie[],
+  options: { browserPath?: string; source?: string } = {}
+): Promise<AuthStatus> {
+  try {
+    acquireLock(accountId, options.source ?? 'cookies-import')
+  } catch (error) {
+    return {
+      signedIn: false,
+      message: (error as Error).message,
+      ...(error instanceof LockBusyError ? { locked: true } : {})
+    }
+  }
+
+  let launched: Awaited<ReturnType<typeof launchContext>>
+  try {
+    launched = await launchContext({
+      userDataDir: browserProfileDir(accountId),
+      headless: true,
+      browserPath: options.browserPath
+    })
+  } catch (error) {
+    releaseLock(accountId)
+    return { signedIn: false, message: (error as Error).message }
+  }
+
+  const { page, context, close } = launched
+  try {
+    const previous = await context.cookies()
+    await context.clearCookies()
+    await context.addCookies(toPlaywrightCookies(cookies) as unknown as Cookie[])
+    const signedIn = await checkSession(page)
+    let restored = false
+    if (!signedIn && previous.length > 0) {
+      try {
+        await context.clearCookies()
+        await context.addCookies(previous)
+        restored = true
+      } catch {
+        restored = false
+      }
+    }
+    return {
+      signedIn,
+      message: signedIn
+        ? `Imported ${cookies.length} cookie(s) and verified sign-in`
+        : `Imported ${cookies.length} cookie(s), but TikTok did not accept the session. Make sure you are signed in to tiktok.com in Chrome and copied a valid sessionid.${restored ? ' The previous session was kept.' : ''}`
     }
   } catch (error) {
     return { signedIn: false, message: (error as Error).message }

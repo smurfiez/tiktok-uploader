@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  parseCookieHeader,
+  parseCookieInput,
+  parseJsonCookies,
   parseNetscape,
   serializeNetscape,
   sessionIdToCookies,
@@ -152,5 +155,106 @@ describe('sessionIdToCookies', () => {
     expect(cookies.every((cookie) => (cookie.expires ?? 0) > Math.floor(Date.now() / 1000))).toBe(
       true
     )
+  })
+})
+
+describe('parseJsonCookies', () => {
+  it('parses a Cookie-Editor export', () => {
+    const text = JSON.stringify([
+      {
+        domain: '.tiktok.com',
+        expirationDate: 1767225600.75,
+        httpOnly: true,
+        name: 'sessionid',
+        path: '/',
+        secure: true,
+        sameSite: 'no_restriction',
+        value: 'abc'
+      },
+      { domain: '.tiktok.com', name: 'ttwid', sameSite: 'lax', value: 'def' },
+      { domain: 'tiktok.com', name: 'odd', sameSite: 'strict', value: 'ghi' },
+      { domain: '.tiktok.com', name: 'plain', sameSite: 'unspecified', value: 'jkl' }
+    ])
+
+    const cookies = parseJsonCookies(text)
+
+    expect(cookies).toEqual([
+      {
+        name: 'sessionid',
+        value: 'abc',
+        domain: '.tiktok.com',
+        path: '/',
+        secure: true,
+        httpOnly: true,
+        expires: 1767225600,
+        sameSite: 'None'
+      },
+      { name: 'ttwid', value: 'def', domain: '.tiktok.com', path: '/', sameSite: 'Lax' },
+      { name: 'odd', value: 'ghi', domain: 'tiktok.com', path: '/', sameSite: 'Strict' },
+      { name: 'plain', value: 'jkl', domain: '.tiktok.com', path: '/' }
+    ])
+  })
+
+  it('filters a mixed-domain export down to TikTok', () => {
+    const text = JSON.stringify([
+      { domain: '.google.com', name: 'SID', value: 'google' },
+      { domain: '.tiktok.com', name: 'sessionid', value: 'tiktok' }
+    ])
+
+    expect(parseJsonCookies(text)).toEqual([
+      { name: 'sessionid', value: 'tiktok', domain: '.tiktok.com', path: '/' }
+    ])
+  })
+
+  it('returns an empty array for invalid or non-array JSON', () => {
+    expect(parseJsonCookies('not json')).toEqual([])
+    expect(parseJsonCookies('{"name":"sessionid"}')).toEqual([])
+  })
+})
+
+describe('parseCookieHeader', () => {
+  it('preserves = inside values and synthesizes sessionid_ss', () => {
+    const cookies = parseCookieHeader('Cookie: a=1; sessionid=xyz123; token=a=b')
+
+    expect(cookies.map((cookie) => cookie.name)).toEqual(['a', 'sessionid', 'token', 'sessionid_ss'])
+    expect(cookies.find((cookie) => cookie.name === 'token')?.value).toBe('a=b')
+    expect(cookies.find((cookie) => cookie.name === 'sessionid_ss')?.value).toBe('xyz123')
+  })
+
+  it('does not add sessionid_ss when it is already present', () => {
+    const cookies = parseCookieHeader('sessionid=a; sessionid_ss=b')
+
+    expect(cookies.map((cookie) => cookie.name)).toEqual(['sessionid', 'sessionid_ss'])
+    expect(cookies[1].value).toBe('b')
+  })
+})
+
+describe('parseCookieInput', () => {
+  it('detects a JSON cookie array', () => {
+    const text = JSON.stringify([{ domain: '.tiktok.com', name: 'sessionid', value: 'abc' }])
+    expect(parseCookieInput(text)).toHaveLength(1)
+  })
+
+  it('detects a Netscape cookies.txt', () => {
+    const text = HEADER + '.tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\tabc\n'
+    expect(parseCookieInput(text)).toEqual([
+      { name: 'sessionid', value: 'abc', domain: '.tiktok.com', path: '/', secure: true }
+    ])
+  })
+
+  it('detects a Cookie header', () => {
+    const cookies = parseCookieInput('Cookie: sessionid=abc12345')
+    expect(cookies.map((cookie) => cookie.name)).toEqual(['sessionid', 'sessionid_ss'])
+  })
+
+  it('detects a bare sessionid token', () => {
+    const cookies = parseCookieInput('0123456789abcdef')
+    expect(cookies.map((cookie) => cookie.name)).toEqual(['sessionid', 'sessionid_ss'])
+    expect(cookies[0].value).toBe('0123456789abcdef')
+  })
+
+  it('rejects empty and prose input', () => {
+    expect(parseCookieInput('   ')).toEqual([])
+    expect(parseCookieInput('hello world')).toEqual([])
   })
 })
