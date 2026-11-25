@@ -22,7 +22,7 @@ export class BrowserNotFoundError extends Error {
 export interface LaunchContextOptions {
   userDataDir: string
   headless: boolean
-  /** Explicit binary; falls back to CHROME_PATH, Brave, Chrome, Edge */
+  /** Explicit binary; falls back to CHROME_PATH, Chrome, Brave, Edge */
   browserPath?: string
 }
 
@@ -52,8 +52,11 @@ export async function launchContext(options: LaunchContextOptions): Promise<Laun
   const candidates: Array<{ executablePath?: string; channel?: 'chrome' | 'msedge' }> = []
   if (explicit) candidates.push({ executablePath: explicit })
   else {
+    // Chrome first: Brave being installed must not silently override the
+    // browser the user expects (settings / CHROME_PATH still win above).
+    candidates.push({ channel: 'chrome' })
     if (brave) candidates.push({ executablePath: brave })
-    candidates.push({ channel: 'chrome' }, { channel: 'msedge' })
+    candidates.push({ channel: 'msedge' })
   }
 
   const errors: string[] = []
