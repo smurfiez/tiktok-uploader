@@ -104,7 +104,7 @@ export const SELECTORS = {
       '/item/list',
       '/creator/item'
     ],
-    row: '[data-e2e="post-row"], [data-e2e="video-row"], table tbody tr, [class*="video-item"], [class*="post-item"]',
+    row: '[data-e2e="post-row"], [data-e2e="video-row"], table tbody tr, [data-tt="components_PostInfoCell_FlexRow"], [class*="video-item"], [class*="post-item"]',
     videoLink: 'a[href*="/video/"]',
     thumbnail: 'img[src]'
   }

@@ -352,9 +352,11 @@ export async function syncAccountLibrary(
               const href = link?.href ?? ''
               const match = href.match(/\/video\/(\d+)/)
               if (!match) continue
+              // the caption anchor carries the post text; row text adds duration/stats
+              const text = (link?.textContent ?? '').trim() || row.textContent || ''
               found.push({
                 id: match[1],
-                caption: (row.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 300),
+                caption: text.replace(/\s+/g, ' ').trim().slice(0, 300),
                 url: href,
                 ...(image?.src ? { coverUrl: image.src } : {})
               })
