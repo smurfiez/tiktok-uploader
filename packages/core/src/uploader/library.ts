@@ -13,7 +13,7 @@ import { dirname } from 'node:path'
 import type { Response } from 'playwright-core'
 
 import { browserProfileDir, libraryPath } from '../paths'
-import { acquireLock, LockBusyError, releaseLock, updateAccount } from '../profiles'
+import { acquireLock, listAccounts, LockBusyError, releaseLock, updateAccount } from '../profiles'
 import { PATHS, SELECTORS } from '../selectors'
 import type { AccountLibrary, RemoteVideoStatus, TikTokVideo, Visibility } from '../types'
 import { sleep } from '../utils'
@@ -66,7 +66,7 @@ const asNumber = (value: unknown): number | undefined => {
   return typeof num === 'number' && Number.isFinite(num) ? num : undefined
 }
 
-const ITEM_KEYS = ['itemList', 'items', 'aweme_list', 'item_info_list', 'video_list', 'list']
+const ITEM_KEYS = ['itemList', 'item_list', 'items', 'aweme_list', 'item_info_list', 'video_list', 'list']
 
 function findItemArray(payload: unknown): unknown[] {
   if (!isRecord(payload)) return []
@@ -187,14 +187,20 @@ function parseEntry(entry: Json): RawLibraryItem | null {
   const handle = readHandle(entry)
 
   const video = isRecord(entry.video) ? entry.video : undefined
-  const coverUrl =
-    asText(video?.cover) ??
-    asText(video?.originCover) ??
-    asText(video?.dynamicCover) ??
-    asText(entry.cover_url) ??
-    asText(entry.coverUrl) ??
-    asText(entry.cover) ??
-    asText(entry.thumbnail)
+  // Studio sends cover_url as a list of signed URLs
+  const coverCandidates = [
+    video?.cover,
+    video?.originCover,
+    video?.dynamicCover,
+    entry.cover_url,
+    entry.coverUrl,
+    entry.cover,
+    entry.thumbnail
+  ]
+  const coverUrl = coverCandidates
+    .map((candidate) => (Array.isArray(candidate) ? candidate[0] : candidate))
+    .map(asText)
+    .find(Boolean)
 
   const createdAt = toIso(asNumber(entry.createTime ?? entry.create_time ?? entry.post_time))
   const scheduledAt = toIso(asNumber(entry.scheduleTime ?? entry.schedule_time))
@@ -283,6 +289,8 @@ export async function syncAccountLibrary(
 
   const { context, page, close } = launched
   const captured = new Map<string, RawLibraryItem>()
+  /** API rows carry no author, so link them to the account's known handle. */
+  const knownHandle = listAccounts().find((account) => account.id === accountId)?.handle
   let handle: string | undefined
 
   const collect = async (response: Response): Promise<void> => {
@@ -295,7 +303,13 @@ export async function syncAccountLibrary(
       const parsed = parseCreatorApiPayload(await response.json())
       handle ??= parsed.handle
       for (const item of parsed.items) {
-        if (!captured.has(item.id)) captured.set(item.id, item)
+        if (captured.has(item.id)) continue
+        captured.set(
+          item.id,
+          item.url === PATHS.content && knownHandle
+            ? { ...item, url: `https://www.tiktok.com/@${knownHandle}/video/${item.id}` }
+            : item
+        )
       }
     } catch {
       // a malformed or already-consumed response is not fatal
@@ -384,9 +398,26 @@ export async function syncAccountLibrary(
       }
     }
 
+    // API rows carry no author; take the handle from the rendered post links
+    const pageHandle = await page
+      .evaluate(
+        () =>
+          (document.querySelector('a[href*="/@"]')?.getAttribute('href') ?? '').match(
+            /\/@([^/?]+)/
+          )?.[1]
+      )
+      .catch(() => undefined)
+    handle ??= pageHandle ?? knownHandle
+    if (handle) {
+      for (const [id, item] of captured) {
+        if (item.url === PATHS.content) {
+          captured.set(id, { ...item, url: `https://www.tiktok.com/@${handle}/video/${id}` })
+        }
+      }
+    }
+
     const selected = [...captured.values()].slice(0, maxItems)
     const items: TikTokVideo[] = []
-
     for (let index = 0; index < selected.length; index += 5) {
       const batch = selected.slice(index, index + 5)
       const settled = await Promise.allSettled(
@@ -411,15 +442,16 @@ export async function syncAccountLibrary(
       })
     }
 
+    const savedHandle = handle ?? knownHandle
     const library: AccountLibrary = {
       fetchedAt: new Date().toISOString(),
-      ...(handle ? { handle } : {}),
+      ...(savedHandle ? { handle: savedHandle } : {}),
       items
     }
     saveLibrary(accountId, library)
 
     updateAccount(accountId, {
-      ...(handle ? { handle } : {}),
+      ...(savedHandle ? { handle: savedHandle } : {}),
       lastSignedIn: true,
       lastCheckedAt: new Date().toISOString()
     })

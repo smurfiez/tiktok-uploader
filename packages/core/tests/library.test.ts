@@ -44,6 +44,30 @@ describe('parseCreatorApiPayload', () => {
     ).toBe('c')
   })
 
+  it('reads the Studio item_list payload with signed cover arrays', () => {
+    const parsed = parseCreatorApiPayload({
+      cursor: 50,
+      has_more: true,
+      item_list: [
+        {
+          item_id: '7710998459712572673',
+          desc: 'Hate - 4minute',
+          create_time: '1795356738',
+          duration: 16641,
+          cover_url: ['https://cdn.example/cover-1.jpeg', 'https://cdn.example/cover-2.jpeg']
+        }
+      ]
+    })
+
+    expect(parsed.items).toHaveLength(1)
+    expect(parsed.items[0]).toMatchObject({
+      id: '7710998459712572673',
+      caption: 'Hate - 4minute',
+      coverUrl: 'https://cdn.example/cover-1.jpeg',
+      durationSec: 17
+    })
+  })
+
   it('falls back to an empty list when no array is present', () => {
     expect(parseCreatorApiPayload(null)).toEqual({ items: [] })
     expect(parseCreatorApiPayload({})).toEqual({ items: [] })
