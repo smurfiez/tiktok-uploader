@@ -248,6 +248,10 @@ export function parseCreatorApiPayload(payload: unknown): { handle?: string; ite
 const matchesLibraryApi = (url: string): boolean =>
   SELECTORS.library.apiUrlPatterns.some((pattern) => url.includes(pattern))
 
+/** Akamai's block page renders as a "successful" navigation with zero rows. */
+export const isBlockedPage = (title: string, body: string): boolean =>
+  /access denied|you don't have permission to access/i.test(`${title} ${body}`)
+
 const stripCover = ({ coverUrl: _cover, ...item }: RawLibraryItem): TikTokVideo => item
 
 export async function syncAccountLibrary(
@@ -303,6 +307,20 @@ export async function syncAccountLibrary(
     page.on('response', (response) => void collect(response))
 
     await page.goto(PATHS.content, { waitUntil: 'domcontentloaded' })
+
+    const pageText = await page
+      .evaluate(() => ({ title: document.title, body: document.body?.innerText ?? '' }))
+      .catch(() => null)
+    if (pageText && isBlockedPage(pageText.title, pageText.body)) {
+      // an Akamai block page has no rows, so without this the sync would
+      // overwrite the cache with an empty library and report success
+      return {
+        ok: false,
+        message:
+          'TikTok refused the request (Access Denied) — this network is being rate-limited. Wait a few minutes, then sync again.'
+      }
+    }
+
     await assertSignedIn(page, 'TikTok Studio content')
 
     const startedAt = Date.now()

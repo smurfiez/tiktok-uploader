@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { PATHS } from '../src/selectors'
 import type { AccountLibrary } from '../src/types'
-import { loadLibrary, parseCreatorApiPayload, saveLibrary } from '../src/uploader/library'
+import { isBlockedPage, loadLibrary, parseCreatorApiPayload, saveLibrary } from '../src/uploader/library'
 
 const seconds = (date: Date): number => Math.floor(date.getTime() / 1000)
 const inDays = (days: number): Date => new Date(Date.now() + days * 86_400_000)
@@ -166,6 +166,21 @@ describe('parseCreatorApiPayload', () => {
 
   it('falls back to the studio content page when there is no handle', () => {
     expect(parseCreatorApiPayload({ items: [{ id: '1' }] }).items[0].url).toBe(PATHS.content)
+  })
+})
+
+describe('isBlockedPage', () => {
+  it('detects the Akamai block page so an empty sync is not reported as success', () => {
+    expect(
+      isBlockedPage(
+        'Access Denied',
+        "Access Denied You don't have permission to access \"http://www.tiktok.com/\" on this server."
+      )
+    ).toBe(true)
+  })
+
+  it('leaves a real Studio page alone', () => {
+    expect(isBlockedPage('TikTok Studio', 'Manage your posts and videos')).toBe(false)
   })
 })
 
