@@ -140,6 +140,8 @@ export interface TikTokVideo {
 export interface AccountLibrary {
   fetchedAt: string
   handle?: string
+  /** More videos exist on TikTok than this cache holds. */
+  hasMore?: boolean
   items: TikTokVideo[]
 }
 

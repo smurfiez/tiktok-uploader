@@ -468,10 +468,12 @@ export async function syncAccountLibrary(
       )
     }
 
+    const more = hasMorePages || captured.size > items.length
     const savedHandle = handle ?? knownHandle
     const library: AccountLibrary = {
       fetchedAt: new Date().toISOString(),
       ...(savedHandle ? { handle: savedHandle } : {}),
+      hasMore: more,
       items
     }
     saveLibrary(accountId, library)
@@ -482,7 +484,6 @@ export async function syncAccountLibrary(
       lastCheckedAt: new Date().toISOString()
     })
 
-    const more = hasMorePages || captured.size > items.length
     return {
       ok: true,
       library,

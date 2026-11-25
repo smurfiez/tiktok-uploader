@@ -929,6 +929,7 @@ export default function App() {
       .then((loaded) => {
         if (!alive) return
         setLibrary(loaded ?? null)
+        setLibraryHasMore(Boolean(loaded?.hasMore))
         setLibraryFor(accountId)
       })
       .catch((e: unknown) => {
